@@ -78,13 +78,10 @@ const App = () => {
         lines.slice(1).forEach((cols) => {
           let rawId = cols[idIdx]?.trim();
           if (rawId) {
-            let cleanId = rawId;
-            if (rawId.includes('E+')) {
-                cleanId = String(BigInt(Math.round(Number(rawId))));
-            }
+            let cleanId = rawId.includes('E+') ? BigInt(Math.round(Number(rawId))).toString() : rawId;
             map[cleanId] = { 
-                a2026: Math.abs(cleanNum(cols[a26Idx])), 
-                commit2026: Math.abs(cleanNum(cols[c26Idx])) 
+                a2026: cleanNum(cols[a26Idx]), 
+                commit2026: cleanNum(cols[c26Idx]) 
             };
           }
         });
@@ -152,9 +149,9 @@ const App = () => {
     return fullData.filter(r => {
       const matchWing = !activeWingId || cleanStr(r.wing) === cleanStr(activeWingId);
       const matchDept = filterDept === 'הכל' || r.dept === filterDept;
-      const matchType = filterType === 'הכל' || r.type === filterType;
-      const matchSearch = r.name.includes(search) || String(r.id).includes(search);
-      return matchWing && matchDept && matchType && matchSearch;
+      const typeMatches = filterType === 'הכל' || r.type === filterType;
+      const searchMatches = r.name.includes(search) || String(r.id).includes(search);
+      return matchWing && matchDept && typeMatches && searchMatches;
     });
   }, [fullData, activeWingId, filterDept, filterType, search]);
 
@@ -179,7 +176,7 @@ const App = () => {
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 font-black text-emerald-800 animate-pulse text-right" dir="rtl">טוען נתונים...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden text-right" dir="rtl">
       <header className="bg-white border-b sticky top-0 z-[250] shadow-sm">
         <div className="max-w-[1600px] mx-auto p-3 flex justify-between items-center px-4 lg:px-8">
           <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 text-slate-600 lg:hidden focus:outline-none"><Menu size={28} /></button>
@@ -200,7 +197,7 @@ const App = () => {
       <div className="flex flex-1 lg:flex-row relative">
         <aside className={`fixed inset-0 z-[150] bg-white transition-transform duration-300 transform lg:static lg:block lg:w-72 lg:h-[calc(100vh-64px)] lg:border-l ${isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
           <div className="flex flex-col h-full bg-white pt-24 lg:pt-0">
-             <div className="p-6 space-y-2 border-b text-right">
+             <div className="p-6 space-y-2 border-b">
                 <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-500 hover:bg-emerald-50'}`}><LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span></button>
                 <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-500 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">פירוט תקציב</span></button>
                 <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'control' ? 'bg-red-700 text-white shadow-lg' : 'text-red-600 font-bold hover:bg-red-50'}`}><ShieldAlert size={20} /> <span className="font-bold">בקרה</span></button>
@@ -221,84 +218,90 @@ const App = () => {
 
         <main className="flex-1 p-4 lg:p-10 overflow-x-hidden text-right">
           {mainTab === 'budget' ? (
-            <div className="max-w-[1400px] mx-auto text-right animate-in fade-in duration-500">
+            <div className="max-w-[1400px] mx-auto text-right">
               <header className="mb-8">
                 <h2 className="text-2xl lg:text-4xl font-black text-slate-800 tracking-tight">{viewMode === 'dashboard' ? 'תמונת מצב' : viewMode === 'table' ? 'פירוט' : 'בקרה'} - {activeWingId || currentUser.target || 'כלל המועצה'}</h2>
               </header>
 
-              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-8 text-right">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-8">
                 {viewMode !== 'control' && (
                   <>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 24</p><p className="text-lg font-black text-slate-600 tabular-nums">{formatILS(currentStats.a2024)}</p></div>
-                    {/* תיקון צבע ומבנה הכרטיס הלבן (תקציב 25) */}
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 25</p><p className="text-lg font-black text-emerald-700 tabular-nums opacity-100">{formatILS(currentStats.b2025)}</p></div>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 24</p><p className="text-lg font-black text-slate-600 tabular-nums">{formatILS(currentStats.a2024)}</p></div>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 25</p><p className="text-lg font-black text-emerald-700 tabular-nums">{formatILS(currentStats.b2025)}</p></div>
                   </>
                 )}
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-blue-600"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 2026</p><p className="text-lg font-black text-blue-800 tabular-nums">{formatILS(currentStats.b2026)}</p></div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-orange-500"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע+שריון</p><p className={`text-lg font-black tabular-nums ${currentStats.commit2026 > currentStats.b2026 ? 'text-red-600' : 'text-orange-600'}`}>{formatILS(currentStats.commit2026)}</p></div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-slate-400"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע</p><p className="text-lg font-black text-slate-900 tabular-nums">{formatILS(currentStats.a2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-blue-600 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 2026</p><p className="text-lg font-black text-blue-800 tabular-nums">{formatILS(currentStats.b2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-orange-500 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע+שריון</p><p className="text-lg font-black text-orange-700 tabular-nums">{formatILS(currentStats.commit2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-slate-400 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase text-right">ביצוע</p><p className="text-lg font-black text-slate-900 tabular-nums">{formatILS(currentStats.a2026)}</p></div>
                 <div className="bg-emerald-900 p-4 rounded-2xl flex flex-col items-center justify-center text-white font-black text-[10px] italic">LIVE SYNC</div>
               </div>
 
-              {viewMode === 'dashboard' ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 text-right">
-                  <div className="bg-white p-6 lg:p-10 rounded-[3rem] shadow-sm border border-slate-100 min-h-[420px]">
-                    <h3 className="font-black text-slate-800 mb-6 border-r-8 border-emerald-500 pr-3">התפלגות הוצאות 26</h3>
-                    <div className="h-[300px]"><ResponsiveContainer width="100%" height="100%" minHeight={250}><PieChart><Pie data={chartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={5}>{chartData.map((e, i) => <Cell key={i} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][i % 5]} />)}</Pie><Tooltip formatter={v => formatILS(v)} /></PieChart></ResponsiveContainer></div>
-                  </div>
-                  <div className="bg-white p-6 lg:p-10 rounded-[3rem] shadow-sm border border-slate-100 min-h-[420px]">
-                    <h3 className="font-black text-slate-800 mb-6 border-r-8 border-blue-500 pr-3 text-right">מגמת צמיחה</h3>
-                    <div className="h-[300px]"><ResponsiveContainer width="100%" height="100%" minHeight={250}><BarChart data={[{n:'24', v:currentStats.a2024}, {n:'25', v:currentStats.b2025}, {n:'26', v:currentStats.b2026}]}><CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} /><XAxis dataKey="n" axisLine={false} tickLine={false} /><YAxis hide /><Tooltip formatter={v => formatILS(v)} /><Bar dataKey="v" radius={[10, 10, 0, 0]} barSize={45} fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 bg-white p-4 rounded-3xl shadow-sm border items-end text-right">
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">חיפוש</label><input type="text" placeholder="חפש..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right" /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">סוג</label><select value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right"><option value="הכל">הכל</option><option value="הוצאה">הוצאה</option><option value="הכנסה">הכנסה</option></select></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right" disabled={!activeWingId}><option value="הכל">כל המחלקות</option>{wingDepts.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
+                  
+                  {/* בורר שנים ובורר מדדים משולב שחזר לעבוד */}
+                  <div className="lg:col-span-2 space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">
+                        {viewMode === 'table' ? 'בורר שנים' : 'מדד בקרה'}
+                    </label>
+                    <div className="flex gap-1 bg-slate-50 p-1 rounded-xl">
+                      {viewMode === 'table' ? (
+                        <>
+                          <button onClick={() => setVisibleYears(p => ({...p, a2024: !p.a2024}))} className={`flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all ${visibleYears.a2024 ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>24</button>
+                          <button onClick={() => setVisibleYears(p => ({...p, b2025: !p.b2025}))} className={`flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all ${visibleYears.b2025 ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>25</button>
+                          <button onClick={() => setVisibleYears(p => ({...p, a2026: !p.a2026}))} className={`flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all ${visibleYears.a2026 ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע</button>
+                          <button onClick={() => setVisibleYears(p => ({...p, commit2026: !p.commit2026}))} className={`flex-1 py-1.5 rounded-lg font-bold text-[10px] transition-all ${visibleYears.commit2026 ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע+שריון</button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => setControlMetric('a2026')} className={`flex-1 py-2 rounded-lg font-bold text-[10px] transition-all ${controlMetric === 'a2026' ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע</button>
+                          <button onClick={() => setControlMetric('commit2026')} className={`flex-1 py-2 rounded-lg font-bold text-[10px] transition-all ${controlMetric === 'commit2026' ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע+שריון</button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* ...שאר רכיבי הטבלה והסינון נשארים ללא שינוי... */}
-                  <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto text-right">
-                    <table className="w-full text-right border-collapse min-w-[800px]">
-                      <thead>
-                        <tr className="bg-slate-50 text-[10px] font-black text-slate-400 border-b text-right uppercase">
-                          <th className="p-4 pr-6">סעיף</th><th className="p-4">תיאור</th><th className="p-4">מחלקה</th><th className="p-4 text-left">תקציב 2026</th>
-                          {viewMode === 'control' ? <><th className={`p-4 text-left font-black ${controlMetric === 'a2026' ? 'text-blue-700' : 'text-orange-600'}`}>{controlMetric === 'a2026' ? 'ביצוע' : 'ביצוע+שריון'}</th><th className="p-4 text-left font-black text-emerald-700 bg-emerald-50/50">יתרה</th></> : (
+
+                <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto">
+                  <table className="w-full text-right border-collapse min-w-[800px]">
+                    <thead>
+                      <tr className="bg-slate-50 text-[10px] font-black text-slate-400 border-b uppercase">
+                        <th className="p-4 pr-6">סעיף</th><th className="p-4">תיאור</th><th className="p-4 text-center">מחלקה</th><th className="p-4 text-left">תקציב 26</th>
+                        {viewMode === 'control' ? (
+                            <><th className={`p-4 text-left font-black ${controlMetric === 'a2026' ? 'text-blue-700' : 'text-orange-600'}`}>{controlMetric === 'a2026' ? 'ביצוע' : 'ביצוע+שריון'}</th><th className="p-4 text-left font-black text-emerald-700 bg-emerald-50/50">יתרה</th></>
+                        ) : (
+                          <>
+                            {visibleYears.a2024 && <th className="p-4 text-left text-slate-500">ביצוע 24</th>}
+                            {visibleYears.b2025 && <th className="p-4 text-left text-emerald-600">תקציב 25</th>}
+                            {visibleYears.a2026 && <th className="p-4 text-left text-blue-700">ביצוע</th>}
+                            {visibleYears.commit2026 && <th className="p-4 text-left text-orange-600">ביצוע+שריון</th>}
+                          </>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {tableRows.map(row => (
+                        <tr key={row.id} onClick={() => setSelectedRowId(row.id === selectedRowId ? null : row.id)} className={`group cursor-pointer transition-all ${selectedRowId === row.id ? 'bg-yellow-100' : 'hover:bg-slate-50'}`}>
+                          <td className="p-4 pr-6 font-mono text-[10px] text-slate-400">#{row.id}</td><td className="p-4 font-black text-slate-800 text-xs">{row.name}</td><td className="p-4 font-bold text-slate-700 text-[10px] text-center">{row.dept}</td><td className="p-4 text-left font-bold text-blue-800 text-xs tabular-nums">{formatILS(row.b2026)}</td>
+                          {viewMode === 'control' ? (
+                            <><td className={`p-4 text-left font-black text-xs tabular-nums ${controlMetric === 'a2026' ? 'text-blue-700' : (row.isOverBudget ? 'text-red-600' : 'text-orange-600')}`}>{formatILS(controlMetric === 'a2026' ? row.a2026 : row.commit2026)}</td><td className={`relative p-4 text-left font-black text-xs tabular-nums ${row.isOverBudget ? 'text-red-700' : 'text-emerald-700'}`}><div className={`absolute inset-0 opacity-10 ${row.isOverBudget ? 'bg-red-500' : 'bg-emerald-500'} ${selectedRowId === row.id ? 'hidden' : ''}`} />{formatILS(row.balance)}</td></>
+                          ) : (
                             <>
-                              {visibleYears.a2024 && <th className="p-4 text-left text-slate-500">ביצוע 24</th>}
-                              {visibleYears.b2025 && <th className="p-4 text-left text-emerald-600">תקציב 25</th>}
-                              {visibleYears.a2026 && <th className="p-4 text-left text-blue-700">ביצוע</th>}
-                              {visibleYears.commit2026 && <th className="p-4 text-left text-orange-600">ביצוע+שריון</th>}
+                              {visibleYears.a2024 && <td className="p-4 text-left text-xs tabular-nums text-slate-400">{formatILS(row.a2024)}</td>}
+                              {visibleYears.b2025 && <td className="p-4 text-left text-xs tabular-nums text-emerald-600/70">{formatILS(row.b2025)}</td>}
+                              {visibleYears.a2026 && <td className="p-4 text-left text-xs tabular-nums text-blue-700/80">{formatILS(row.a2026)}</td>}
+                              {visibleYears.commit2026 && <td className="p-4 text-left text-xs font-bold text-orange-600 tabular-nums">{formatILS(row.commit2026)}</td>}
                             </>
                           )}
                         </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {tableRows.map(row => (
-                          <tr key={row.id} onClick={() => setSelectedRowId(row.id === selectedRowId ? null : row.id)} className={`group cursor-pointer transition-all ${selectedRowId === row.id ? 'bg-yellow-100' : 'hover:bg-slate-50'}`}>
-                            <td className={`p-4 pr-6 font-mono text-[10px] text-slate-400 text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>#{row.id}</td>
-                            <td className={`p-4 font-black text-slate-800 text-xs text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{row.name}</td>
-                            <td className={`p-4 font-bold text-slate-700 text-[10px] text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{row.dept}</td>
-                            <td className={`p-4 text-left font-bold text-blue-800 text-xs tabular-nums text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.b2026)}</td>
-                            {viewMode === 'control' ? (
-                              <>
-                                <td className={`p-4 text-left font-black text-xs tabular-nums ${controlMetric === 'a2026' ? 'text-blue-700' : (row.isOverBudget ? 'text-red-600' : 'text-orange-600')} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(controlMetric === 'a2026' ? row.a2026 : row.commit2026)}</td>
-                                <td className={`relative p-4 text-left font-black text-xs tabular-nums ${row.isOverBudget ? 'text-red-700' : 'text-emerald-700'} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>
-                                  <div className={`absolute inset-0 opacity-10 ${row.isOverBudget ? 'bg-red-500' : 'bg-emerald-500'} ${selectedRowId === row.id ? 'hidden' : ''}`} />
-                                  {formatILS(row.balance)}
-                                </td>
-                              </>
-                            ) : (
-                               <>
-                                {visibleYears.a2024 && <td className={`p-4 text-left text-xs tabular-nums text-slate-400 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.a2024)}</td>}
-                                {visibleYears.b2025 && <td className={`p-4 text-left text-xs tabular-nums text-emerald-600/70 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.b2025)}</td>}
-                                {visibleYears.a2026 && <td className={`p-4 text-left text-xs tabular-nums text-blue-700/80 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.a2026)}</td>}
-                                {visibleYears.commit2026 && <td className={`p-4 text-left text-xs font-bold text-orange-600 tabular-nums text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.commit2026)}</td>}
-                              </>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-64 text-slate-400 italic">תכניות עבודה בבנייה...</div>
