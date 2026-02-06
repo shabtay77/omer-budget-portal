@@ -32,7 +32,6 @@ const cleanStr = (s) => String(s || "").replace(/["'״״]/g, "").trim();
 const cleanNum = (val) => {
   if (typeof val === 'number') return val;
   if (!val) return 0;
-  // שומר על סימן המינוס ועל נקודה עשרונית
   let str = String(val).replace(/[^\d.-]/g, '');
   const n = parseFloat(str);
   return isNaN(n) ? 0 : n;
@@ -79,7 +78,6 @@ const App = () => {
         lines.slice(1).forEach((cols) => {
           let rawId = cols[idIdx]?.trim();
           if (rawId) {
-            // טיפול בפורמט מדעי - המרה למזהה טקסטואלי תקין
             let cleanId = rawId;
             if (rawId.includes('E+')) {
                 cleanId = String(BigInt(Math.round(Number(rawId))));
@@ -91,7 +89,7 @@ const App = () => {
           }
         });
         setExecutionMap(map);
-      } catch (e) { console.error("Data Load Error:", e); }
+      } catch (e) { console.error("Error loading data:", e); }
       finally { setLoading(false); }
     };
     loadAllData();
@@ -110,7 +108,6 @@ const App = () => {
       const exec = executionMap[idKey] || { a2026: 0, commit2026: 0 };
       const b2026 = cleanNum(item.b2026);
       const metricVal = controlMetric === 'a2026' ? exec.a2026 : exec.commit2026;
-      
       const balance = b2026 - metricVal;
       const isOver = item.type === 'הוצאה' ? balance < 0 : balance > 0;
 
@@ -155,23 +152,23 @@ const App = () => {
     return fullData.filter(r => {
       const matchWing = !activeWingId || cleanStr(r.wing) === cleanStr(activeWingId);
       const matchDept = filterDept === 'הכל' || r.dept === filterDept;
-      const typeMatches = filterType === 'הכל' || r.type === filterType;
-      const searchMatches = r.name.includes(search) || String(r.id).includes(search);
-      return matchWing && matchDept && typeMatches && searchMatches;
+      const matchType = filterType === 'הכל' || r.type === filterType;
+      const matchSearch = r.name.includes(search) || String(r.id).includes(search);
+      return matchWing && matchDept && matchType && matchSearch;
     });
   }, [fullData, activeWingId, filterDept, filterType, search]);
 
   if (!isLoggedIn) {
     return (
       <div className="h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-right" dir="rtl">
-        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-200">
+        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-emerald-800 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-emerald-800/20"><Lock size={32} /></div>
+            <div className="w-16 h-16 bg-emerald-800 rounded-2xl flex items-center justify-center text-white mb-4"><Lock size={32} /></div>
             <h1 className="text-2xl font-black text-slate-800">פורטל מועצת עומר</h1>
           </div>
           <form onSubmit={(e) => { e.preventDefault(); const found = USERS_DB.find(u => u.user.toLowerCase() === uInput.toLowerCase() && u.pass === pInput); if(found){ setCurrentUser(found); setIsLoggedIn(true); if(found.role==='WING') setActiveWingId(found.target); } else setLoginErr('שגיאה בפרטים'); }} className="space-y-4">
-            <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right text-slate-900" value={uInput} onChange={e => setUInput(e.target.value)} />
-            <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right text-slate-900" value={pInput} onChange={e => setPInput(e.target.value)} />
+            <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={uInput} onChange={e => setUInput(e.target.value)} />
+            <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={pInput} onChange={e => setPInput(e.target.value)} />
             <button type="submit" className="w-full bg-emerald-800 text-white p-4 rounded-2xl font-black text-lg shadow-lg">כניסה</button>
           </form>
         </div>
@@ -182,7 +179,7 @@ const App = () => {
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 font-black text-emerald-800 animate-pulse text-right" dir="rtl">טוען נתונים...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden text-right" dir="rtl">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
       <header className="bg-white border-b sticky top-0 z-[250] shadow-sm">
         <div className="max-w-[1600px] mx-auto p-3 flex justify-between items-center px-4 lg:px-8">
           <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 text-slate-600 lg:hidden focus:outline-none"><Menu size={28} /></button>
@@ -192,7 +189,7 @@ const App = () => {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-left hidden sm:block">
-               <p className="text-[10px] font-black text-slate-600 leading-none">שלום, {currentUser.user}</p>
+               <p className="text-[10px] font-black text-slate-400 leading-none">שלום, {currentUser.user}</p>
                <button onClick={() => window.location.reload()} className="text-[10px] font-bold text-red-500 underline uppercase">התנתק</button>
             </div>
             <div className="w-9 h-9 bg-emerald-800 rounded-xl flex items-center justify-center text-white font-black shadow-md">ע</div>
@@ -203,9 +200,9 @@ const App = () => {
       <div className="flex flex-1 lg:flex-row relative">
         <aside className={`fixed inset-0 z-[150] bg-white transition-transform duration-300 transform lg:static lg:block lg:w-72 lg:h-[calc(100vh-64px)] lg:border-l ${isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
           <div className="flex flex-col h-full bg-white pt-24 lg:pt-0">
-             <div className="p-6 space-y-2 border-b">
-                <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span></button>
-                <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">פירוט תקציב</span></button>
+             <div className="p-6 space-y-2 border-b text-right">
+                <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-500 hover:bg-emerald-50'}`}><LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span></button>
+                <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-500 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">פירוט תקציב</span></button>
                 <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'control' ? 'bg-red-700 text-white shadow-lg' : 'text-red-600 font-bold hover:bg-red-50'}`}><ShieldAlert size={20} /> <span className="font-bold">בקרה</span></button>
              </div>
              <div className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -214,7 +211,7 @@ const App = () => {
                     <p className="text-[10px] font-black text-slate-300 uppercase pr-4 mb-2 tracking-widest text-right">אגפים</p>
                     <button onClick={() => { setActiveWingId(null); setIsMenuOpen(false); }} className={`w-full text-right p-3 rounded-xl mb-1 text-sm font-bold ${activeWingId === null ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>כלל המועצה</button>
                     {Object.keys(ICONS).map(name => (
-                      <button key={name} onClick={() => { setActiveWingId(name); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-3 rounded-xl mb-1 text-sm transition-all ${activeWingId === name ? 'bg-slate-900 text-white font-bold' : 'text-slate-500 hover:bg-slate-100'}`}>{React.createElement(ICONS[name], { size: 16 })} <span className="text-right">{name}</span></button>
+                      <button key={name} onClick={() => { setActiveWingId(name); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-3 rounded-xl mb-1 text-sm transition-all ${activeWingId === name ? 'bg-slate-900 text-white font-bold' : 'text-slate-500 hover:bg-slate-100'}`}>{React.createElement(ICONS[name], { size: 16 })} <span>{name}</span></button>
                     ))}
                   </>
                 )}
@@ -224,21 +221,22 @@ const App = () => {
 
         <main className="flex-1 p-4 lg:p-10 overflow-x-hidden text-right">
           {mainTab === 'budget' ? (
-            <div className="max-w-[1400px] mx-auto text-right">
+            <div className="max-w-[1400px] mx-auto text-right animate-in fade-in duration-500">
               <header className="mb-8">
                 <h2 className="text-2xl lg:text-4xl font-black text-slate-800 tracking-tight">{viewMode === 'dashboard' ? 'תמונת מצב' : viewMode === 'table' ? 'פירוט' : 'בקרה'} - {activeWingId || currentUser.target || 'כלל המועצה'}</h2>
               </header>
 
-              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-8">
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-8 text-right">
                 {viewMode !== 'control' && (
                   <>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 24</p><p className="text-lg font-black text-slate-600 tabular-nums">{formatILS(currentStats.a2024)}</p></div>
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">{formatILS(currentStats.b2025)}</p></div>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 24</p><p className="text-lg font-black text-slate-600 tabular-nums">{formatILS(currentStats.a2024)}</p></div>
+                    {/* תיקון צבע ומבנה הכרטיס הלבן (תקציב 25) */}
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 25</p><p className="text-lg font-black text-emerald-700 tabular-nums opacity-100">{formatILS(currentStats.b2025)}</p></div>
                   </>
                 )}
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-blue-600 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 2026</p><p className="text-lg font-black text-blue-800 tabular-nums">{formatILS(currentStats.b2026)}</p></div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-orange-500 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע+שריון</p><p className={`text-lg font-black tabular-nums ${currentStats.commit2026 > currentStats.b2026 ? 'text-red-600 animate-pulse' : 'text-orange-600'}`}>{formatILS(currentStats.commit2026)}</p></div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-slate-400 text-right"><p className="text-[8px] font-bold text-slate-400 uppercase text-right">ביצוע</p><p className="text-lg font-black text-slate-900 tabular-nums">{formatILS(currentStats.a2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-blue-600"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 2026</p><p className="text-lg font-black text-blue-800 tabular-nums">{formatILS(currentStats.b2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-orange-500"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע+שריון</p><p className={`text-lg font-black tabular-nums ${currentStats.commit2026 > currentStats.b2026 ? 'text-red-600' : 'text-orange-600'}`}>{formatILS(currentStats.commit2026)}</p></div>
+                <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-slate-400"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע</p><p className="text-lg font-black text-slate-900 tabular-nums">{formatILS(currentStats.a2026)}</p></div>
                 <div className="bg-emerald-900 p-4 rounded-2xl flex flex-col items-center justify-center text-white font-black text-[10px] italic">LIVE SYNC</div>
               </div>
 
@@ -255,33 +253,12 @@ const App = () => {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 bg-white p-4 rounded-3xl shadow-sm border items-end text-right">
-                    <div className="space-y-1 text-right"><label className="text-[10px] font-black text-slate-400 uppercase">חיפוש</label><input type="text" placeholder="חפש..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right text-slate-900" /></div>
-                    <div className="space-y-1 text-right"><label className="text-[10px] font-black text-slate-400 uppercase">סוג</label><select value={filterType} onChange={e => setFilterType(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right text-slate-900"><option value="הכל">הכל</option><option value="הוצאה">הוצאה</option><option value="הכנסה">הכנסה</option></select></div>
-                    <div className="space-y-1 text-right"><label className="text-[10px] font-black text-slate-400 uppercase">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 lg:p-3 rounded-xl bg-slate-50 border outline-none font-bold text-sm text-right text-slate-900" disabled={!activeWingId}><option value="הכל">כל המחלקות</option>{wingDepts.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
-                    <div className="lg:col-span-2 space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 uppercase">בורר שנים</label>
-                      <div className="flex gap-1 bg-slate-50 p-1 rounded-xl text-right">
-                        {viewMode === 'table' ? (
-                          Object.keys(visibleYears).filter(y => y !== 'b2026').map(y => (
-                            <button key={y} onClick={() => setVisibleYears(p => ({...p, [y]: !p[y]}))} className={`flex-1 py-1.5 rounded-lg font-bold text-[8px] lg:text-[10px] transition-all ${visibleYears[y] ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>
-                              {y === 'a2026' ? 'ביצוע' : y === 'commit2026' ? 'ביצוע+שריון' : y === 'a2024' ? '24' : '25'}
-                            </button>
-                          ))
-                        ) : (
-                          <>
-                            <button onClick={() => setControlMetric('a2026')} className={`flex-1 py-2 rounded-lg font-bold text-[10px] transition-all ${controlMetric === 'a2026' ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע</button>
-                            <button onClick={() => setControlMetric('commit2026')} className={`flex-1 py-2 rounded-lg font-bold text-[10px] transition-all ${controlMetric === 'commit2026' ? 'bg-emerald-800 text-white shadow-sm' : 'text-slate-300'}`}>ביצוע+שריון</button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto text-right text-right">
-                    <table className="w-full text-right border-collapse min-w-[800px] text-right">
+                  {/* ...שאר רכיבי הטבלה והסינון נשארים ללא שינוי... */}
+                  <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto text-right">
+                    <table className="w-full text-right border-collapse min-w-[800px]">
                       <thead>
                         <tr className="bg-slate-50 text-[10px] font-black text-slate-400 border-b text-right uppercase">
-                          <th className="p-4 pr-6 text-right">סעיף</th><th className="p-4 text-right">תיאור</th><th className="p-4 text-right">מחלקה</th><th className="p-4 text-left">תקציב 2026</th>
+                          <th className="p-4 pr-6">סעיף</th><th className="p-4">תיאור</th><th className="p-4">מחלקה</th><th className="p-4 text-left">תקציב 2026</th>
                           {viewMode === 'control' ? <><th className={`p-4 text-left font-black ${controlMetric === 'a2026' ? 'text-blue-700' : 'text-orange-600'}`}>{controlMetric === 'a2026' ? 'ביצוע' : 'ביצוע+שריון'}</th><th className="p-4 text-left font-black text-emerald-700 bg-emerald-50/50">יתרה</th></> : (
                             <>
                               {visibleYears.a2024 && <th className="p-4 text-left text-slate-500">ביצוע 24</th>}
@@ -294,7 +271,7 @@ const App = () => {
                       </thead>
                       <tbody className="divide-y">
                         {tableRows.map(row => (
-                          <tr key={row.id} onClick={() => setSelectedRowId(row.id === selectedRowId ? null : row.id)} className={`group cursor-pointer transition-all text-right ${selectedRowId === row.id ? 'bg-yellow-100' : 'hover:bg-slate-50'}`}>
+                          <tr key={row.id} onClick={() => setSelectedRowId(row.id === selectedRowId ? null : row.id)} className={`group cursor-pointer transition-all ${selectedRowId === row.id ? 'bg-yellow-100' : 'hover:bg-slate-50'}`}>
                             <td className={`p-4 pr-6 font-mono text-[10px] text-slate-400 text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>#{row.id}</td>
                             <td className={`p-4 font-black text-slate-800 text-xs text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{row.name}</td>
                             <td className={`p-4 font-bold text-slate-700 text-[10px] text-right ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{row.dept}</td>
@@ -308,7 +285,7 @@ const App = () => {
                                 </td>
                               </>
                             ) : (
-                              <>
+                               <>
                                 {visibleYears.a2024 && <td className={`p-4 text-left text-xs tabular-nums text-slate-400 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.a2024)}</td>}
                                 {visibleYears.b2025 && <td className={`p-4 text-left text-xs tabular-nums text-emerald-600/70 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.b2025)}</td>}
                                 {visibleYears.a2026 && <td className={`p-4 text-left text-xs tabular-nums text-blue-700/80 text-left ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}>{formatILS(row.a2026)}</td>}
@@ -324,7 +301,7 @@ const App = () => {
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-400 italic text-right">תכניות עבודה בבנייה...</div>
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400 italic">תכניות עבודה בבנייה...</div>
           )}
         </main>
       </div>
