@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Check, Loader2 } from 'lucide-react';
+import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Loader2 } from 'lucide-react';
 
 const SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2Y4QkJxnqapKne4Q5TSAC5ZVBE1oPjKYKRKE1MFqiDfxSBZdWJQgbFnJbKz_H98q6WvS6NtKKjHM2/pub?output=csv";
 const GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxApLFVWP1w72mz9PEAIvZ030j3vsVPkz2WfLf5KlzGu5TDN0e3H6IVwR-fhRrI_Wf5aw/exec";
@@ -33,8 +33,7 @@ const formatDate = (val) => {
 };
 
 const formatILS = (val) => {
-    const absVal = Math.abs(val || 0);
-    return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(absVal);
+    return new Intl.NumberFormat('he-IL', { style: 'currency', currency: 'ILS', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val || 0);
 };
 
 const cleanNum = (val) => {
@@ -62,106 +61,101 @@ const App = () => {
   const [filterStatus, setFilterStatus] = useState('הכל');
   const [search, setSearch] = useState('');
 
-  // טעינת נתונים משולבת: JSON + LIVE CSV
+  // טעינת נתונים משולבת
   useEffect(() => {
-    const fetchData = async () => {
+    const init = async () => {
       try {
-        const [budgetRes, workRes, sheetsRes] = await Promise.all([
-          fetch('/budget_data.json'),
-          fetch('/workplans_data.json'),
-          fetch(SHEETS_CSV_URL)
-        ]);
-
-        const bData = await budgetRes.json();
-        const wData = await workRes.json();
-        const csvText = await sheetsRes.text();
+        const [bRes, wRes, sRes] = await Promise.all([fetch('/budget_data.json'), fetch('/workplans_data.json'), fetch(SHEETS_CSV_URL)]);
+        const bJson = await bRes.json();
+        const wJson = await wRes.json();
+        const csvText = await sRes.text();
 
         const lines = csvText.split('\n').map(l => l.split(','));
         const headers = lines[0].map(h => h.trim().toLowerCase());
         const idIdx = headers.findIndex(h => h.includes('id'));
         const a26Idx = headers.findIndex(h => h.includes('a2026'));
+        const c26Idx = headers.findIndex(h => h.includes('commit'));
         const statusIdx = 9; // עמודה J
 
         const execMap = {};
-        const liveStatusMap = {};
+        const liveStatus = {};
 
         lines.slice(1).forEach(cols => {
-          let rawId = cols[idIdx]?.trim();
+          const rawId = cols[idIdx]?.trim();
           if (rawId) {
-            let cleanId = rawId.includes('E+') ? String(BigInt(Math.round(Number(rawId)))) : rawId;
-            execMap[cleanId] = cleanNum(cols[a26Idx]);
-            liveStatusMap[cleanId] = cleanNum(cols[statusIdx]);
+            const cleanId = rawId.includes('E+') ? String(BigInt(Math.round(Number(rawId)))) : rawId;
+            execMap[cleanId] = { a2026: cleanNum(cols[a26Idx]), commit2026: cleanNum(cols[c26Idx]) };
+            liveStatus[cleanId] = cleanNum(cols[statusIdx]);
           }
         });
 
-        // מיזוג נתונים: סטטוס תמיד נלקח מהשיטס
-        const mergedWorkPlans = wData.filter(t => t.id).map(task => ({
-          ...task,
-          rating: liveStatusMap[String(task.id)] || 0
+        // מיזוג סטטוס חי מהשיטס לתוך המשימות
+        const mergedWork = wJson.filter(t => t.id).map(t => ({
+          ...t,
+          rating: liveStatus[String(t.id)] || 0
         }));
 
-        setStaticData(bData);
-        setWorkPlans(mergedWorkPlans);
+        setStaticData(bJson);
+        setWorkPlans(mergedWork);
         setExecutionMap(execMap);
-      } catch (err) { console.error("Error loading data:", err); }
+      } catch (e) { console.error(e); }
       finally { setLoading(false); }
     };
-    fetchData();
+    init();
   }, []);
 
-  // הרשאות וסינון בסיסי
+  // חישוב סיכומים לראשי (תקציב)
+  const budgetStats = useMemo(() => {
+    const filtered = staticData.filter(r => (!activeWingId || r.wing === activeWingId) && r.type === 'הוצאה');
+    return filtered.reduce((acc, curr) => {
+      const exec = executionMap[curr.id] || { a2026: 0, commit2026: 0 };
+      acc.b2026 += cleanNum(curr.b2026);
+      acc.a2024 += cleanNum(curr.a2024);
+      acc.b2025 += cleanNum(curr.b2025);
+      acc.a2026 += exec.a2026;
+      acc.commit += exec.commit2026;
+      return acc;
+    }, { b2026: 0, a2024: 0, b2025: 0, a2026: 0, commit: 0 });
+  }, [staticData, activeWingId, executionMap]);
+
+  // סינון משימות + מחלקות חכמות
+  const wingDepts = useMemo(() => {
+    const pool = activeWingId ? workPlans.filter(t => t.wing === activeWingId) : workPlans;
+    return Array.from(new Set(pool.map(t => t.dept))).filter(Boolean);
+  }, [workPlans, activeWingId]);
+
   const filteredWorkData = useMemo(() => {
     let data = workPlans;
-    if (currentUser?.role === 'WING') data = data.filter(item => item.wing === currentUser.target);
-    if (currentUser?.role === 'DEPT') data = data.filter(item => item.dept === currentUser.target);
-    
-    if (activeWingId) data = data.filter(item => item.wing === activeWingId);
+    if (currentUser?.role === 'WING') data = data.filter(t => t.wing === currentUser.target);
+    if (currentUser?.role === 'DEPT') data = data.filter(t => t.dept === currentUser.target);
+    if (activeWingId) data = data.filter(t => t.wing === activeWingId);
     if (filterDept !== 'הכל') data = data.filter(t => t.dept === filterDept);
     if (filterStatus !== 'הכל') {
-      if (filterStatus === 'missing') data = data.filter(t => !t.rating || t.rating === 0);
-      else data = data.filter(t => t.rating === parseInt(filterStatus));
+        if (filterStatus === 'missing') data = data.filter(t => !t.rating || t.rating === 0);
+        else data = data.filter(t => t.rating === parseInt(filterStatus));
     }
-    if (search) data = data.filter(t => (t.task || "").includes(search) || (t.dept || "").includes(search));
+    if (search) data = data.filter(t => t.task?.includes(search) || t.dept?.includes(search));
     return data;
   }, [workPlans, currentUser, activeWingId, filterDept, filterStatus, search]);
 
-  // חישוב סטטיסטיקה לתמונת מצב - מתוקן!
   const workStats = useMemo(() => {
     const data = filteredWorkData;
     const total = data.length || 1;
-    const s1 = data.filter(t => t.rating === 1).length;
-    const s2 = data.filter(t => t.rating === 2).length;
-    const s3 = data.filter(t => t.rating === 3).length;
-    const m = data.filter(t => !t.rating || t.rating === 0).length;
-
-    return {
-      p1: Math.round((s1 / total) * 100),
-      p2: Math.round((s2 / total) * 100),
-      p3: Math.round((s3 / total) * 100),
-      pm: Math.round((m / total) * 100),
-      counts: { s1, s2, s3, m }
-    };
+    const counts = { s1: data.filter(t => t.rating === 1).length, s2: data.filter(t => t.rating === 2).length, s3: data.filter(t => t.rating === 3).length, m: data.filter(t => !t.rating || t.rating === 0).length };
+    return { p1: Math.round((counts.s1/total)*100), p2: Math.round((counts.s2/total)*100), p3: Math.round((counts.s3/total)*100), pm: Math.round((counts.m/total)*100), counts };
   }, [filteredWorkData]);
 
-  // שמירה מאוחדת
   const handleSave = async () => {
     if (pendingChanges.length === 0) return;
     setIsSaving(true);
     try {
-      for (const change of pendingChanges) {
-        const url = `${GAS_SCRIPT_URL}?id=${change.id}&rating=${change.rating}`;
-        await fetch(url, { method: 'POST', mode: 'no-cors' });
+      for (const c of pendingChanges) {
+        await fetch(`${GAS_SCRIPT_URL}?id=${c.id}&rating=${c.rating}`, { method: 'POST', mode: 'no-cors' });
       }
-      alert("נשמר בשיטס! הנתונים יתעדכנו בכניסה הבאה.");
+      alert("השינויים נשמרו בשיטס בהצלחה!");
       setPendingChanges([]);
     } catch (e) { alert("שגיאה בשמירה"); }
     finally { setIsSaving(false); }
-  };
-
-  const updateStatus = (id, val) => {
-    const rating = parseInt(val);
-    setWorkPlans(prev => prev.map(t => t.id === id ? { ...t, rating } : t));
-    setPendingChanges(prev => [...prev.filter(c => c.id !== id), { id, rating }]);
   };
 
   const handleLogin = (e) => {
@@ -172,28 +166,26 @@ const App = () => {
       setIsLoggedIn(true);
       if (user.role === 'WING') setActiveWingId(user.target);
       if (user.role === 'DEPT') {
-          const found = workPlans.find(w => w.dept === user.target);
-          setActiveWingId(found?.wing || "שפ\"ה");
+        const found = workPlans.find(w => w.dept === user.target);
+        setActiveWingId(found?.wing || "שפ\"ה");
       }
     }
   };
 
-  if (!isLoggedIn) {
-    return (
-      <div className="h-screen bg-slate-100 flex items-center justify-center p-4 font-sans text-right" dir="rtl">
-        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-200">
-          <div className="flex flex-col items-center mb-8"><div className="w-16 h-16 bg-emerald-800 rounded-2xl flex items-center justify-center text-white mb-4"><Lock size={32} /></div><h1 className="text-2xl font-black text-slate-800">פורטל מועצת עומר</h1></div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={uInput} onChange={e => setUInput(e.target.value)} />
-            <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={pInput} onChange={e => setPInput(e.target.value)} />
-            <button type="submit" className="w-full bg-emerald-800 text-white p-4 rounded-2xl font-black text-lg">כניסה</button>
-          </form>
-        </div>
+  if (!isLoggedIn) return (
+    <div className="h-screen bg-slate-100 flex items-center justify-center font-sans" dir="rtl">
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-200">
+        <div className="flex flex-col items-center mb-8"><div className="w-16 h-16 bg-emerald-800 rounded-2xl flex items-center justify-center text-white mb-4"><Lock size={32} /></div><h1 className="text-2xl font-black text-slate-800">פורטל מועצת עומר</h1></div>
+        <form onSubmit={handleLogin} className="space-y-4">
+          <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={uInput} onChange={e => setUInput(e.target.value)} />
+          <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={pInput} onChange={e => setPInput(e.target.value)} />
+          <button type="submit" className="w-full bg-emerald-800 text-white p-4 rounded-2xl font-black text-lg">כניסה</button>
+        </form>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (loading) return <div className="h-screen flex flex-col items-center justify-center bg-slate-50 font-black text-emerald-800" dir="rtl"><Loader2 className="animate-spin mb-4" size={48} />טוען נתונים חיים מהשיטס...</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 font-black text-emerald-800 animate-pulse" dir="rtl">טוען נתונים מהשיטס...</div>;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
@@ -211,24 +203,24 @@ const App = () => {
             <button onClick={() => {setMainTab('workplan'); setViewMode('dashboard');}} className={`px-4 py-1.5 rounded-lg text-xs font-bold ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'}`}>תכנית עבודה</button>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-left hidden sm:block"><p className="text-[10px] font-black text-slate-600">שלום, {currentUser.user}</p><button onClick={() => window.location.reload()} className="text-[10px] font-bold text-red-500 underline">התנתק</button></div>
-            <div className="w-9 h-9 bg-emerald-800 rounded-xl flex items-center justify-center text-white font-black shadow-md">ע</div>
+            <div className="text-left"><p className="text-[10px] font-black text-slate-600">שלום, {currentUser.user}</p><button onClick={() => window.location.reload()} className="text-[10px] font-bold text-red-500 underline">התנתק</button></div>
+            <div className="w-9 h-9 bg-emerald-800 rounded-xl flex items-center justify-center text-white font-black">ע</div>
           </div>
       </header>
 
-      <div className="flex flex-1 lg:flex-row relative">
+      <div className="flex flex-1">
         <aside className="hidden lg:block lg:w-72 bg-white border-l h-[calc(100vh-64px)] sticky top-16">
           <div className="p-6 space-y-2 border-b">
             <button onClick={() => setViewMode('dashboard')} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white' : 'text-slate-600'}`}><LayoutDashboard size={20}/> <span className="font-bold">תמונת מצב</span></button>
             <button onClick={() => setViewMode('table')} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'table' ? 'bg-emerald-800 text-white' : 'text-slate-600'}`}><TableProperties size={20}/> <span className="font-bold">פירוט מלא</span></button>
           </div>
-          <div className="p-6 overflow-y-auto max-h-[60%]">
+          <div className="p-6">
             <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">{currentUser.role === 'ADMIN' ? 'אגפים' : 'האגף שלי'}</p>
             {currentUser.role === 'ADMIN' ? (
               <>
-                <button onClick={() => setActiveWingId(null)} className={`w-full text-right p-3 rounded-xl mb-1 text-sm font-bold ${!activeWingId ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>כלל המועצה</button>
+                <button onClick={() => {setActiveWingId(null); setFilterDept('הכל');}} className={`w-full text-right p-3 rounded-xl mb-1 text-sm font-bold ${!activeWingId ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>כלל המועצה</button>
                 {Object.keys(ICONS).map(name => (
-                  <button key={name} onClick={() => setActiveWingId(name)} className={`w-full flex items-center gap-3 p-3 rounded-xl mb-1 text-sm ${activeWingId === name ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>{React.createElement(ICONS[name], { size: 16 })} <span>{name}</span></button>
+                  <button key={name} onClick={() => {setActiveWingId(name); setFilterDept('הכל');}} className={`w-full flex items-center gap-3 p-3 rounded-xl mb-1 text-sm ${activeWingId === name ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>{React.createElement(ICONS[name], { size: 16 })} <span>{name}</span></button>
                 ))}
               </>
             ) : (
@@ -239,68 +231,74 @@ const App = () => {
           </div>
         </aside>
 
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden text-right">
-          <h2 className="text-2xl lg:text-4xl font-black text-slate-800 mb-8">{activeWingId || (currentUser?.role === 'DEPT' ? currentUser.target : 'כלל המועצה')}</h2>
+        <main className="flex-1 p-4 lg:p-8 text-right">
+          <h2 className="text-2xl lg:text-4xl font-black text-slate-800 mb-8">{activeWingId || 'כלל המועצה'}</h2>
 
-          {mainTab === 'workplan' && viewMode === 'dashboard' ? (
+          {mainTab === 'budget' ? (
             <div className="space-y-8">
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center"><CheckCircle2 className="text-emerald-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">בוצע</p><p className="text-3xl font-black text-slate-800">{workStats.p1}%</p></div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center"><Clock className="text-amber-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">בתהליך</p><p className="text-3xl font-black text-slate-800">{workStats.p2}%</p></div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center"><AlertCircle className="text-red-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">לא בוצע</p><p className="text-3xl font-black text-slate-800">{workStats.p3}%</p></div>
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center"><HelpCircle className="text-slate-300 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">טרם עודכן</p><p className="text-3xl font-black text-slate-800">{workStats.pm}%</p></div>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-8">
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 24</p><p className="text-lg font-black text-slate-700">{formatILS(budgetStats.a2024)}</p></div>
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border"><p className="text-[8px] font-bold text-slate-400 uppercase">תקציב 25</p><p className="text-lg font-black text-emerald-700">{formatILS(budgetStats.b2025)}</p></div>
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-blue-600"><p className="text-[8px] font-bold text-slate-400 uppercase text-blue-600">תקציב 26</p><p className="text-lg font-black text-blue-800">{formatILS(budgetStats.b2026)}</p></div>
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-orange-500"><p className="text-[8px] font-bold text-slate-400 uppercase text-orange-600">ביצוע+שריון</p><p className="text-lg font-black text-orange-700">{formatILS(budgetStats.commit)}</p></div>
+                 <div className="bg-white p-4 rounded-2xl shadow-sm border-b-4 border-slate-400"><p className="text-[8px] font-bold text-slate-400 uppercase">ביצוע 26</p><p className="text-lg font-black text-slate-900">{formatILS(budgetStats.a2026)}</p></div>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-8 rounded-[3rem] shadow-sm border h-[400px] flex flex-col items-center justify-center">
-                  <h3 className="font-black text-slate-800 mb-4 self-start border-r-8 border-emerald-500 pr-3">סטטוס משימות</h3>
-                  <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{name: 'בוצע', value: workStats.counts.s1}, {name: 'בתהליך', value: workStats.counts.s2}, {name: 'לא בוצע', value: workStats.counts.s3}, {name: 'טרם עודכן', value: workStats.counts.m}]} dataKey="value" cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={5}>{[ '#10b981', '#f59e0b', '#ef4444', '#e2e8f0' ].map((c, i) => <Cell key={i} fill={c} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
+              {viewMode === 'table' && (
+                <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto p-4">
+                  <table className="w-full text-right border-collapse">
+                    <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 border-b uppercase"><th className="p-4 pr-6">סעיף</th><th>תיאור</th><th className="text-center">מחלקה</th><th className="text-left">תקציב 26</th><th className="text-left">ביצוע 26</th></tr></thead>
+                    <tbody className="divide-y">{staticData.filter(r => (!activeWingId || r.wing === activeWingId) && (search === '' || r.name?.includes(search))).map(row => (
+                      <tr key={row.id} className="hover:bg-slate-50"><td className="p-4 pr-6 font-mono text-[10px] text-slate-400">#{row.id}</td><td className="p-4 font-black text-slate-800 text-xs">{row.name}</td><td className="p-4 font-bold text-slate-700 text-[10px] text-center">{row.dept}</td><td className="p-4 text-left font-bold text-blue-800 text-xs">{formatILS(row.b2026)}</td><td className="p-4 text-left font-black text-xs">{formatILS(executionMap[row.id]?.a2026 || 0)}</td></tr>
+                    ))}</tbody>
+                  </table>
                 </div>
-                <div className="bg-white p-8 rounded-[3rem] shadow-sm border h-[400px]">
-                   <h3 className="font-black text-slate-800 mb-4 border-r-8 border-blue-500 pr-3">משימות לפי מחלקה</h3>
-                   <ResponsiveContainer width="100%" height="100%"><BarChart data={Array.from(new Set(filteredWorkData.map(t=>t.dept))).map(d => ({n: d, v: filteredWorkData.filter(t=>t.dept === d).length}))} layout="vertical"><XAxis type="number" hide/><YAxis dataKey="n" type="category" width={100} tick={{fontSize: 10, fontWeight:'black'}}/><Tooltip/><Bar dataKey="v" fill="#3b82f6" radius={[0,10,10,0]} barSize={20}/></BarChart></ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-          ) : viewMode === 'table' ? (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border items-end">
-                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">חיפוש</label><input type="text" placeholder="חפש משימה..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right" /></div>
-                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right" disabled={currentUser?.role === 'DEPT'}><option value="הכל">כל המחלקות</option>{Array.from(new Set(workPlans.map(t=>t.dept))).map(d => <option key={d} value={d}>{d}</option>)}</select></div>
-                <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">סטטוס</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right"><option value="הכל">כל הסטטוסים</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option><option value="missing">טרם עודכן</option></select></div>
-              </div>
-              <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-x-auto">
-                <table className="w-full text-right border-collapse min-w-[900px]">
-                  <thead className="bg-slate-50 text-[10px] font-black text-slate-400 border-b uppercase">
-                    <tr><th className="p-4" style={{width:'5%'}}>#</th><th className="p-4" style={{width:'15%'}}>מחלקה</th><th className="p-4" style={{width:'35%'}}>משימה</th><th className="p-4" style={{width:'12%'}}>לו"ז</th><th className="p-4" style={{width:'15%'}}>יעד הצלחה</th><th className="p-4 text-center" style={{width:'12%'}}>סטטוס</th></tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {filteredWorkData.map(task => (
-                      <tr key={task.id} className={`hover:bg-slate-50 ${task.rating === 1 ? 'bg-emerald-50/20' : ''}`}>
-                        <td className="p-4 text-slate-300 font-mono text-[10px]">#{task.id}</td>
-                        <td className="p-4 text-xs font-black text-emerald-800">{task.dept}</td>
-                        <td className="p-4 font-black text-slate-800 text-xs leading-relaxed">{task.task}</td>
-                        <td className="p-4 text-[10px] font-black text-slate-500">{formatDate(task.deadline)}</td>
-                        <td className="p-4 text-[10px] text-slate-600 leading-tight">{task.success_target}</td>
-                        <td className="p-4 text-center">
-                          <select value={task.rating || ""} onChange={(e) => updateStatus(task.id, e.target.value)} className={`p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer w-full ${task.rating === 1 ? 'bg-emerald-100 text-emerald-700' : task.rating === 2 ? 'bg-amber-100 text-amber-700' : task.rating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}>
-                            <option value="">-</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option>
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              )}
             </div>
           ) : (
-            /* תצוגת תקציב - השארתי את הטבלה הפשוטה שעבדה לך מצוין */
-            <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto p-4">
-              <table className="w-full text-right border-collapse min-w-[800px]">
-                <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 border-b uppercase"><th className="p-4 pr-6">סעיף</th><th>תיאור</th><th className="text-center">מחלקה</th><th className="text-left">תקציב 26</th><th className="text-left">ביצוע 26</th></tr></thead>
-                <tbody className="divide-y">{staticData.filter(r => (!activeWingId || r.wing === activeWingId) && (search === '' || (r.name||"").includes(search))).map(row => (
-                  <tr key={row.id} className="hover:bg-slate-50"><td className="p-4 pr-6 font-mono text-[10px] text-slate-400">#{row.id}</td><td className="p-4 font-black text-slate-800 text-xs">{row.name}</td><td className="p-4 font-bold text-slate-700 text-[10px] text-center">{row.dept}</td><td className="p-4 text-left font-bold text-blue-800 text-xs">{formatILS(row.b2026)}</td><td className="p-4 text-left font-black text-xs">{formatILS(executionMap[row.id] || 0)}</td></tr>
-                ))}</tbody>
-              </table>
+            <div className="space-y-8">
+              {viewMode === 'dashboard' ? (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border flex flex-col items-center"><CheckCircle2 className="text-emerald-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">בוצע</p><p className="text-3xl font-black text-slate-800">{workStats.p1}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border flex flex-col items-center"><Clock className="text-amber-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">בתהליך</p><p className="text-3xl font-black text-slate-800">{workStats.p2}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border flex flex-col items-center"><AlertCircle className="text-red-500 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">לא בוצע</p><p className="text-3xl font-black text-slate-800">{workStats.p3}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl shadow-sm border flex flex-col items-center"><HelpCircle className="text-slate-300 mb-2" size={40} /><p className="text-[11px] font-black text-slate-400">טרם עודכן</p><p className="text-3xl font-black text-slate-800">{workStats.pm}%</p></div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border items-end">
+                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">חיפוש</label><input type="text" placeholder="חפש משימה..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right" /></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right"><option value="הכל">כל המחלקות</option>{wingDepts.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
+                    <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 pr-2">סטטוס</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm text-right"><option value="הכל">כל הסטטוסים</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option><option value="missing">טרם עודכן</option></select></div>
+                  </div>
+                  <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-x-auto">
+                    <table className="w-full text-right border-collapse min-w-[900px]">
+                      <thead className="bg-slate-50 text-[10px] font-black text-slate-400 border-b uppercase">
+                        <tr><th className="p-4" style={{width:'5%'}}>#</th><th className="p-4" style={{width:'15%'}}>מחלקה</th><th className="p-4" style={{width:'35%'}}>משימה</th><th className="p-4" style={{width:'12%'}}>לו"ז</th><th className="p-4" style={{width:'15%'}}>יעד הצלחה</th><th className="p-4 text-center" style={{width:'12%'}}>סטטוס</th></tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredWorkData.map(task => (
+                          <tr key={task.id} className={`hover:bg-slate-50 ${task.rating === 1 ? 'bg-emerald-50/20' : ''}`}>
+                            <td className="p-4 text-slate-300 font-mono text-[10px]">#{task.id}</td>
+                            <td className="p-4 text-xs font-black text-emerald-800">{task.dept}</td>
+                            <td className="p-4 font-black text-slate-800 text-xs leading-relaxed">{task.task}</td>
+                            <td className="p-4 text-[10px] font-black text-slate-500">{formatDate(task.deadline)}</td>
+                            <td className="p-4 text-[10px] text-slate-600 leading-tight">{task.success_target}</td>
+                            <td className="p-4 text-center">
+                              <select value={task.rating || ""} onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                setWorkPlans(prev => prev.map(t => t.id === task.id ? {...t, rating: val} : t));
+                                setPendingChanges(prev => [...prev.filter(c => c.id !== task.id), {id: task.id, rating: val}]);
+                              }} className={`p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer w-full ${task.rating === 1 ? 'bg-emerald-100 text-emerald-700' : task.rating === 2 ? 'bg-amber-100 text-amber-700' : task.rating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}>
+                                <option value="">-</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option>
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </main>
