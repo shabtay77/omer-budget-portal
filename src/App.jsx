@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Loader2 } from 'lucide-react';
+import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Loader2, Menu, X } from 'lucide-react';
 
 const SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2Y4QkJxnqapKne4Q5TSAC5ZVBE1oPjKYKRKE1MFqiDfxSBZdWJQgbFnJbKz_H98q6WvS6NtKKjHM2/pub?output=csv";
 const GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzPjDK_Enpt5dqW_soJrxs9y6fU5-cKMqsKzNJNouXvNxGnI8Xrxl9nGL51mG3smACV2A/exec";
@@ -308,10 +308,15 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
       {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-[250] shadow-sm p-4 flex justify-between items-center px-8">
-          <div className="flex bg-slate-100 p-1 rounded-xl">
-            <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'}`}>תקציב</button>
-            <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'}`}>תכנית עבודה</button>
+      <header className="bg-white border-b sticky top-0 z-[250] shadow-sm p-4 flex justify-between items-center px-4 lg:px-8">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setIsMenuOpen(true)} className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+              <Menu size={24} />
+            </button>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'}`}>תקציב</button>
+              <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'}`}>תכנית עבודה</button>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-left hidden sm:block">
@@ -324,8 +329,15 @@ const App = () => {
 
       <div className="flex flex-1 lg:flex-row relative">
         {/* Sidebar */}
-        <aside className={`fixed inset-0 z-[150] bg-white transition-transform duration-300 transform lg:static lg:block lg:w-72 lg:h-[calc(100vh-64px)] lg:border-l ${isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
-          <div className="flex flex-col h-full bg-white pt-24 lg:pt-0">
+        <aside className={`fixed inset-0 z-[300] bg-white transition-transform duration-300 transform lg:static lg:block lg:w-72 lg:h-[calc(100vh-64px)] lg:border-l ${isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
+          <div className="flex flex-col h-full bg-white">
+             {/* Mobile Close Button */}
+             <div className="lg:hidden flex justify-between items-center p-4 border-b">
+                <span className="font-black text-slate-800 text-lg">תפריט בחירה</span>
+                <button onClick={() => setIsMenuOpen(false)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">
+                  <X size={24} />
+                </button>
+             </div>
              <div className="p-6 space-y-2 border-b">
                 <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span></button>
                 <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">{mainTab === 'budget' ? 'פירוט תקציב' : 'פירוט משימות'}</span></button>
@@ -335,9 +347,9 @@ const App = () => {
                 <p className="text-[10px] font-black text-slate-400 uppercase pr-4 mb-2 tracking-widest">{currentUser.role === 'ADMIN' ? 'אגפים' : 'האגף שלי'}</p>
                 {currentUser.role === 'ADMIN' ? (
                   <>
-                    <button onClick={() => setActiveWingId(null)} className={`w-full text-right p-3 rounded-xl mb-1 text-sm font-bold ${activeWingId === null ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>כלל המועצה</button>
+                    <button onClick={() => { setActiveWingId(null); setIsMenuOpen(false); }} className={`w-full text-right p-3 rounded-xl mb-1 text-sm font-bold ${activeWingId === null ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>כלל המועצה</button>
                     {Object.keys(ICONS).map(name => (
-                      <button key={name} onClick={() => setActiveWingId(name)} className={`w-full flex items-center justify-start gap-3 p-3 rounded-xl mb-1 text-sm transition-all ${activeWingId === name ? 'bg-slate-900 text-white font-bold' : 'text-slate-500 hover:bg-slate-100'}`}>{React.createElement(ICONS[name], { size: 16 })} <span>{name}</span></button>
+                      <button key={name} onClick={() => { setActiveWingId(name); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-3 rounded-xl mb-1 text-sm transition-all ${activeWingId === name ? 'bg-slate-900 text-white font-bold' : 'text-slate-500 hover:bg-slate-100'}`}>{React.createElement(ICONS[name], { size: 16 })} <span>{name}</span></button>
                     ))}
                   </>
                 ) : (
