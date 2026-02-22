@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Loader2, Menu, X } from 'lucide-react';
+import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Loader2, Menu, X, AlertTriangle } from 'lucide-react';
 
 const SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2Y4QkJxnqapKne4Q5TSAC5ZVBE1oPjKYKRKE1MFqiDfxSBZdWJQgbFnJbKz_H98q6WvS6NtKKjHM2/pub?output=csv";
 const GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzPjDK_Enpt5dqW_soJrxs9y6fU5-cKMqsKzNJNouXvNxGnI8Xrxl9nGL51mG3smACV2A/exec";
@@ -23,6 +23,7 @@ const ICONS = {
   'שירות לתושב ודוברות': Megaphone
 };
 
+// פענוח תאריך לתצוגה
 const formatDate = (val) => {
   if (!val) return "-";
   if (String(val).includes('/')) return val;
@@ -30,6 +31,20 @@ const formatDate = (val) => {
   if (isNaN(serial)) return val;
   const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
   return date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+// פענוח תאריך לאובייקט Date אמיתי לצורך חישובי איחורים
+const parseDateLogic = (val) => {
+    if (!val) return null;
+    if (String(val).includes('/')) {
+      const parts = String(val).split('/');
+      if (parts.length === 3) return new Date(parts[2], parts[1] - 1, parts[0]);
+    }
+    const serial = parseFloat(val);
+    if (!isNaN(serial)) {
+       return new Date(Math.round((serial - 25569) * 86400 * 1000));
+    }
+    return null;
 };
 
 const formatILS = (val) => {
@@ -83,13 +98,23 @@ const App = () => {
     commit2026: false 
   });
 
-  // איפוס סננים כשמחליפים אגף או כשמחליפים בין תמונת מצב לפירוט
+  // מנגנון פופ-אפים והתראות
+  const [hasSeenBudgetPopup, setHasSeenBudgetPopup] = useState(false);
+  const [hasSeenWorkplanPopup, setHasSeenWorkplanPopup] = useState(false);
+  const [activePopup, setActivePopup] = useState(null); // null | 'budget' | 'workplan'
+  const [popupData, setPopupData] = useState({ count: 0 });
+  const [showOnlyBudgetAnomalies, setShowOnlyBudgetAnomalies] = useState(false);
+  const [showOnlyOverdueTasks, setShowOnlyOverdueTasks] = useState(false);
+
+  // איפוס סננים רגילים כשמחליפים אגף או מסך
   useEffect(() => {
     setFilterDept('הכל');
     setBudgetDept('הכל');
     setSearch('');
     setBudgetSearch('');
-  }, [activeWingId, viewMode]);
+    setShowOnlyBudgetAnomalies(false);
+    setShowOnlyOverdueTasks(false);
+  }, [activeWingId, viewMode, mainTab]);
 
   useEffect(() => {
     const loadAllData = async () => {
@@ -101,7 +126,6 @@ const App = () => {
         const budgetJson = await budgetRes.json();
         const workJsonRaw = await workRes.json();
 
-        // קריאת הסטטוסים העדכניים מגוגל שיטס עם מניעת קאש
         let liveStatuses = {};
         try {
             const gasRes = await fetch(GAS_SCRIPT_URL + "?t=" + new Date().getTime());
@@ -110,7 +134,6 @@ const App = () => {
             console.warn("Could not fetch live statuses from GAS", e);
         }
         
-        // מיזוג נתונים
         const workJsonMerged = (workJsonRaw || []).map(t => {
             const taskId = String(t.id);
             const liveRating = liveStatuses[taskId];
@@ -131,7 +154,6 @@ const App = () => {
         setStaticData(budgetJson || []);
         setWorkPlans(workJsonMerged);
 
-        // טעינת תקציב
         const sheetsRes = await fetch(SHEETS_CSV_URL + "&t=" + new Date().getTime());
         const csvText = await sheetsRes.text();
         const lines = csvText.split('\n').map(l => l.split(','));
@@ -189,9 +211,18 @@ const App = () => {
         const term = budgetSearch.toLowerCase();
         if (!String(r.id).includes(term) && !r.name.toLowerCase().includes(term)) return false;
       }
+      
+      // סינון חריגות מקפץ
+      if (showOnlyBudgetAnomalies) {
+        const isExpense = r.type === 'הוצאה';
+        const isRevenue = r.type === 'הכנסה';
+        const isAnomaly = (isExpense && r.balance < 0) || (isRevenue && r.balance > 0);
+        if (!isAnomaly) return false;
+      }
+      
       return true;
     });
-  }, [fullData, activeWingId, budgetDept, budgetType, budgetSearch]);
+  }, [fullData, activeWingId, budgetDept, budgetType, budgetSearch, showOnlyBudgetAnomalies]);
 
   const filteredWorkData = useMemo(() => {
     let data = workPlans;
@@ -204,8 +235,63 @@ const App = () => {
       else data = data.filter(t => t.rating === parseInt(filterStatus));
     }
     if (search) data = data.filter(item => item.task?.includes(search) || String(item.id).includes(search) || item.activity?.includes(search));
+    
+    // סינון משימות באיחור מקפץ
+    if (showOnlyOverdueTasks) {
+        data = data.filter(t => {
+            const taskDate = parseDateLogic(t.deadline);
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            return taskDate && taskDate < today && (!t.rating || t.rating === 3);
+        });
+    }
+
     return data;
-  }, [workPlans, currentUser, activeWingId, filterDept, filterStatus, search]);
+  }, [workPlans, currentUser, activeWingId, filterDept, filterStatus, search, showOnlyOverdueTasks]);
+
+  // בדיקת הקפצות אוטומטיות
+  useEffect(() => {
+    if (loading) return;
+
+    // פופאפ תקציב
+    if (mainTab === 'budget' && viewMode === 'control' && !hasSeenBudgetPopup) {
+        const anomaliesCount = fullData.filter(r => {
+            if (activeWingId !== null && cleanStr(r.wing) !== cleanStr(activeWingId)) return false;
+            const isExpense = r.type === 'הוצאה';
+            const isRevenue = r.type === 'הכנסה';
+            return (isExpense && r.balance < 0) || (isRevenue && r.balance > 0);
+        }).length;
+
+        if (anomaliesCount > 0) {
+            setPopupData({ count: anomaliesCount });
+            setActivePopup('budget');
+            setHasSeenBudgetPopup(true);
+        }
+    }
+
+    // פופאפ תכניות עבודה (איחורים)
+    if (mainTab === 'workplan' && viewMode === 'table' && !hasSeenWorkplanPopup) {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        
+        let relevantTasks = workPlans;
+        if (currentUser?.role === 'WING') relevantTasks = relevantTasks.filter(item => cleanStr(item.wing) === cleanStr(currentUser.target));
+        if (currentUser?.role === 'DEPT') relevantTasks = relevantTasks.filter(item => cleanStr(item.dept) === cleanStr(currentUser.target));
+        if (activeWingId) relevantTasks = relevantTasks.filter(item => cleanStr(item.wing) === cleanStr(activeWingId));
+
+        const overdueCount = relevantTasks.filter(t => {
+            const taskDate = parseDateLogic(t.deadline);
+            return taskDate && taskDate < today && (!t.rating || t.rating === 3);
+        }).length;
+
+        if (overdueCount > 0) {
+            setPopupData({ count: overdueCount });
+            setActivePopup('workplan');
+            setHasSeenWorkplanPopup(true);
+        }
+    }
+  }, [mainTab, viewMode, loading, fullData, workPlans, activeWingId, currentUser, hasSeenBudgetPopup, hasSeenWorkplanPopup]);
+
 
   const workStats = useMemo(() => {
     const data = filteredWorkData || [];
@@ -307,6 +393,44 @@ const App = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
+      
+      {/* פופאפים */}
+      {activePopup === 'budget' && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden text-center">
+                <div className="bg-red-50 p-6 flex justify-center">
+                    <AlertTriangle size={64} className="text-red-500" />
+                </div>
+                <div className="p-8">
+                    <h3 className="text-2xl font-black text-slate-800 mb-2">שימו לב</h3>
+                    <p className="text-slate-600 font-bold mb-8">נמצאו <span className="text-red-600 font-black">{popupData.count}</span> סעיפים בחריגה תקציבית בנתונים שלך.</p>
+                    <div className="flex flex-col gap-3">
+                        <button onClick={() => { setShowOnlyBudgetAnomalies(true); setActivePopup(null); }} className="w-full py-4 bg-red-600 text-white font-black rounded-xl shadow-lg hover:bg-red-700 transition-colors">הצג פירוט חריגות</button>
+                        <button onClick={() => setActivePopup(null)} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">סגור והמשך לתצוגה המלאה</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {activePopup === 'workplan' && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden text-center">
+                <div className="bg-amber-50 p-6 flex justify-center">
+                    <Clock size={64} className="text-amber-500" />
+                </div>
+                <div className="p-8">
+                    <h3 className="text-2xl font-black text-slate-800 mb-2">עיכוב במשימות</h3>
+                    <p className="text-slate-600 font-bold mb-8">יש לך <span className="text-amber-600 font-black">{popupData.count}</span> משימות שעבר המועד שלהן וטרם עודכן להן סטטוס ביצוע.</p>
+                    <div className="flex flex-col gap-3">
+                        <button onClick={() => { setShowOnlyOverdueTasks(true); setActivePopup(null); }} className="w-full py-4 bg-amber-500 text-white font-black rounded-xl shadow-lg hover:bg-amber-600 transition-colors">הצג משימות באיחור</button>
+                        <button onClick={() => setActivePopup(null)} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">סגור והמשך לתצוגה המלאה</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-[250] shadow-sm p-4 flex justify-between items-center px-4 lg:px-8">
           <div className="flex items-center gap-2">
@@ -362,7 +486,7 @@ const App = () => {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden">
+        <main className="flex-1 p-4 lg:p-8 overflow-x-hidden relative">
           <div className="max-w-[1400px] mx-auto">
             <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
@@ -476,18 +600,18 @@ const App = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border mb-4">
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-slate-400">חיפוש סעיף / שם</label>
-                            <input type="text" placeholder="הזן מספר או שם סעיף..." value={budgetSearch} onChange={e => setBudgetSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm" />
+                            <input type="text" placeholder="הזן מספר או שם סעיף..." value={budgetSearch} onChange={e => setBudgetSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm" disabled={showOnlyBudgetAnomalies} />
                         </div>
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-slate-400">מחלקה</label>
-                            <select value={budgetDept} onChange={e => setBudgetDept(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={currentUser?.role === 'DEPT'}>
+                            <select value={budgetDept} onChange={e => setBudgetDept(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={currentUser?.role === 'DEPT' || showOnlyBudgetAnomalies}>
                                 <option value="הכל">כל המחלקות</option>
                                 {Array.from(new Set(fullData.filter(r => activeWingId === null || cleanStr(r.wing) === cleanStr(activeWingId)).map(r => r.dept))).map(d => <option key={d} value={d}>{d}</option>)}
                             </select>
                         </div>
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-slate-400">סוג</label>
-                            <select value={budgetType} onChange={e => setBudgetType(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm">
+                            <select value={budgetType} onChange={e => setBudgetType(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={showOnlyBudgetAnomalies}>
                                 <option value="הכל">הכנסות והוצאות</option>
                                 <option value="הוצאה">הוצאות בלבד</option>
                                 <option value="הכנסה">הכנסות בלבד</option>
@@ -495,19 +619,29 @@ const App = () => {
                         </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-4 bg-white p-4 rounded-2xl shadow-sm border mb-4">
-                      <button 
-                        onClick={() => setControlMetric('a2026')} 
-                        className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${controlMetric === 'a2026' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                      >
-                        השווה מול ביצוע 26
-                      </button>
-                      <button 
-                        onClick={() => setControlMetric('commit2026')} 
-                        className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${controlMetric === 'commit2026' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                      >
-                        השווה מול ביצוע+שריון 26
-                      </button>
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                        <div className="flex flex-wrap gap-4 bg-white p-2 rounded-2xl shadow-sm border">
+                          <button 
+                            onClick={() => setControlMetric('a2026')} 
+                            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${controlMetric === 'a2026' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            השווה מול ביצוע 26
+                          </button>
+                          <button 
+                            onClick={() => setControlMetric('commit2026')} 
+                            className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-sm ${controlMetric === 'commit2026' ? 'bg-emerald-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            השווה מול ביצוע+שריון 26
+                          </button>
+                        </div>
+
+                        {showOnlyBudgetAnomalies && (
+                            <div className="flex items-center gap-4 bg-red-100 p-2 pl-6 pr-2 rounded-2xl border border-red-200 shadow-sm animate-in fade-in zoom-in">
+                                <div className="bg-red-500 text-white w-8 h-8 rounded-xl flex items-center justify-center"><AlertTriangle size={18} /></div>
+                                <span className="font-black text-red-800 text-sm">מציג רק סעיפים בחריגה</span>
+                                <button onClick={() => setShowOnlyBudgetAnomalies(false)} className="text-xs font-bold text-red-600 hover:text-red-900 underline mr-4">בטל סינון</button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="bg-white rounded-3xl shadow-sm border overflow-x-auto pb-4">
@@ -545,6 +679,9 @@ const App = () => {
                           })}
                         </tbody>
                       </table>
+                      {filteredBudgetData.length === 0 && (
+                          <div className="p-8 text-center text-slate-400 font-bold">לא נמצאו סעיפים תואמים לסינון.</div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -619,10 +756,22 @@ const App = () => {
                 ) : (
                   <div className="space-y-4">
                     {/* Filters */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border items-end">
-                        <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">חיפוש משימה</label><input type="text" placeholder="חפש משימה, פעילות או מזהה..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm" /></div>
-                        <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={currentUser?.role === 'DEPT'}><option value="הכל">כל המחלקות</option>{Array.from(new Set(filteredWorkData.map(t=>t.dept))).map(d => <option key={d} value={d}>{d}</option>)}</select></div>
-                        <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">סטטוס ביצוע</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm"><option value="הכל">כל הסטטוסים</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option><option value="missing">טרם עודכן</option></select></div>
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border flex-1">
+                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">חיפוש משימה</label><input type="text" placeholder="חפש משימה, פעילות או מזהה..." value={search} onChange={e => setSearch(e.target.value)} className="w-full p-2 bg-slate-50 border rounded-xl outline-none font-bold text-sm" disabled={showOnlyOverdueTasks} /></div>
+                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">מחלקה</label><select value={filterDept} onChange={e => setFilterDept(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={currentUser?.role === 'DEPT' || showOnlyOverdueTasks}><option value="הכל">כל המחלקות</option>{Array.from(new Set(filteredWorkData.map(t=>t.dept))).map(d => <option key={d} value={d}>{d}</option>)}</select></div>
+                            <div className="space-y-1"><label className="text-[10px] font-black text-slate-400">סטטוס ביצוע</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="w-full p-2 rounded-xl bg-slate-50 border outline-none font-bold text-sm" disabled={showOnlyOverdueTasks}><option value="הכל">כל הסטטוסים</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option><option value="missing">טרם עודכן</option></select></div>
+                        </div>
+                        
+                        {showOnlyOverdueTasks && (
+                            <div className="flex items-center gap-4 bg-amber-100 p-3 pl-6 pr-3 rounded-2xl border border-amber-200 shadow-sm animate-in fade-in zoom-in h-full">
+                                <div className="bg-amber-500 text-white w-10 h-10 rounded-xl flex items-center justify-center"><Clock size={20} /></div>
+                                <div className="flex flex-col">
+                                    <span className="font-black text-amber-800 text-sm leading-tight">מציג חריגות לו"ז</span>
+                                    <button onClick={() => setShowOnlyOverdueTasks(false)} className="text-[10px] text-right font-bold text-amber-600 hover:text-amber-900 underline">בטל סינון</button>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Table */}
@@ -640,34 +789,42 @@ const App = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
-                                {filteredWorkData.map(task => (
-                                    <tr key={task.id} className={`hover:bg-emerald-50 transition-colors group ${task.rating === 1 ? 'bg-emerald-50/40' : ''}`}>
-                                        <td className="p-4 text-slate-300 font-mono text-[10px] group-hover:text-emerald-700 transition-colors">#{task.id}</td>
-                                        <td className="p-4 text-xs font-black text-emerald-800">{task.dept}</td>
-                                        <td className="p-4 text-[10px] text-slate-600 font-bold leading-tight">{task.activity}</td>
-                                        <td className="p-4 font-black text-slate-800 text-xs leading-relaxed max-w-[300px] truncate hover:whitespace-normal hover:break-words">{task.task}</td>
-                                        <td className="p-4 text-[10px] font-black text-slate-500">{formatDate(task.deadline)}</td>
-                                        <td className="p-4 text-[10px] text-slate-600 leading-tight max-w-[200px] truncate hover:whitespace-normal hover:break-words">{task.success_target}</td>
-                                        <td className="p-4 text-center">
-                                            <div className="flex items-center gap-2">
-                                                <select 
-                                                    disabled={savingId === task.id} 
-                                                    value={task.rating || ""} 
-                                                    onChange={(e) => handleStatusSave(task.id, e.target.value)} 
-                                                    className={`flex-1 p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer shadow-sm ${task.rating === 1 ? 'bg-emerald-100 text-emerald-700' : task.rating === 2 ? 'bg-amber-100 text-amber-700' : task.rating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}
-                                                >
-                                                    <option value="">-</option>
-                                                    <option value="1">בוצע</option>
-                                                    <option value="2">בתהליך</option>
-                                                    <option value="3">לא בוצע</option>
-                                                </select>
-                                                {savingId === task.id && <Loader2 size={14} className="animate-spin text-emerald-600" />}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                {filteredWorkData.map(task => {
+                                    const taskDate = parseDateLogic(task.deadline);
+                                    const isOverdue = taskDate && taskDate < new Date() && (!task.rating || task.rating === 3);
+                                    
+                                    return (
+                                        <tr key={task.id} className={`hover:bg-emerald-50 transition-colors group ${task.rating === 1 ? 'bg-emerald-50/40' : ''} ${isOverdue && showOnlyOverdueTasks ? 'bg-amber-50/50' : ''}`}>
+                                            <td className="p-4 text-slate-300 font-mono text-[10px] group-hover:text-emerald-700 transition-colors">#{task.id}</td>
+                                            <td className="p-4 text-xs font-black text-emerald-800">{task.dept}</td>
+                                            <td className="p-4 text-[10px] text-slate-600 font-bold leading-tight">{task.activity}</td>
+                                            <td className="p-4 font-black text-slate-800 text-xs leading-relaxed max-w-[300px] truncate hover:whitespace-normal hover:break-words">{task.task}</td>
+                                            <td className={`p-4 text-[10px] font-black ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{formatDate(task.deadline)}</td>
+                                            <td className="p-4 text-[10px] text-slate-600 leading-tight max-w-[200px] truncate hover:whitespace-normal hover:break-words">{task.success_target}</td>
+                                            <td className="p-4 text-center">
+                                                <div className="flex items-center gap-2">
+                                                    <select 
+                                                        disabled={savingId === task.id} 
+                                                        value={task.rating || ""} 
+                                                        onChange={(e) => handleStatusSave(task.id, e.target.value)} 
+                                                        className={`flex-1 p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer shadow-sm ${task.rating === 1 ? 'bg-emerald-100 text-emerald-700' : task.rating === 2 ? 'bg-amber-100 text-amber-700' : task.rating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}
+                                                    >
+                                                        <option value="">-</option>
+                                                        <option value="1">בוצע</option>
+                                                        <option value="2">בתהליך</option>
+                                                        <option value="3">לא בוצע</option>
+                                                    </select>
+                                                    {savingId === task.id && <Loader2 size={14} className="animate-spin text-emerald-600" />}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
+                        {filteredWorkData.length === 0 && (
+                            <div className="p-8 text-center text-slate-400 font-bold">לא נמצאו משימות תואמות לסינון.</div>
+                        )}
                     </div>
                   </div>
                 )}
