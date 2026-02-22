@@ -23,7 +23,6 @@ const ICONS = {
   'שירות לתושב ודוברות': Megaphone
 };
 
-// פענוח תאריך לתצוגה
 const formatDate = (val) => {
   if (!val) return "-";
   if (String(val).includes('/')) return val;
@@ -33,7 +32,6 @@ const formatDate = (val) => {
   return date.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-// פענוח תאריך לאובייקט Date אמיתי לצורך חישובי איחורים
 const parseDateLogic = (val) => {
     if (!val) return null;
     if (String(val).includes('/')) {
@@ -64,6 +62,23 @@ const cleanNum = (val) => {
   return isNaN(n) ? 0 : n;
 };
 
+// פונקציות עזר למציאת הסטטוס הכולל של משימה
+const getUpdatedQuarter = (task) => {
+    if ([1, 2, 3].includes(task.q4)) return 4;
+    if ([1, 2, 3].includes(task.q3)) return 3;
+    if ([1, 2, 3].includes(task.q2)) return 2;
+    if ([1, 2, 3].includes(task.q1)) return 1;
+    return null;
+};
+
+const getOverallRating = (task) => {
+    if ([1, 2, 3].includes(task.q4)) return task.q4;
+    if ([1, 2, 3].includes(task.q3)) return task.q3;
+    if ([1, 2, 3].includes(task.q2)) return task.q2;
+    if ([1, 2, 3].includes(task.q1)) return task.q1;
+    return null;
+};
+
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -79,16 +94,16 @@ const App = () => {
   const [activeWingId, setActiveWingId] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   
-  // סינוני משימות
+  // סינוני משימות ורבעון
   const [filterDept, setFilterDept] = useState('הכל');
   const [filterStatus, setFilterStatus] = useState('הכל');
   const [search, setSearch] = useState('');
+  const [workplanQuarter, setWorkplanQuarter] = useState(1);
   
   // סינוני תקציב
   const [budgetSearch, setBudgetSearch] = useState('');
   const [budgetType, setBudgetType] = useState('הכל');
   const [budgetDept, setBudgetDept] = useState('הכל');
-  
   const [controlMetric, setControlMetric] = useState('a2026');
   
   const [visibleCols, setVisibleCols] = useState({ 
@@ -98,7 +113,6 @@ const App = () => {
     commit2026: false 
   });
 
-  // מנגנון פופ-אפים והתראות
   const [hasSeenBudgetPopup, setHasSeenBudgetPopup] = useState(false);
   const [hasSeenWorkplanPopup, setHasSeenWorkplanPopup] = useState(false);
   const [activePopup, setActivePopup] = useState(null);
@@ -106,7 +120,6 @@ const App = () => {
   const [showOnlyBudgetAnomalies, setShowOnlyBudgetAnomalies] = useState(false);
   const [showOnlyOverdueTasks, setShowOnlyOverdueTasks] = useState(false);
 
-  // איפוס סננים רגילים כשמחליפים אגף או מסך
   useEffect(() => {
     setFilterDept('הכל');
     setBudgetDept('הכל');
@@ -136,19 +149,23 @@ const App = () => {
         
         const workJsonMerged = (workJsonRaw || []).map(t => {
             const taskId = String(t.id);
-            const liveRating = liveStatuses[taskId];
-            const savedRating = localStorage.getItem(`task_rating_${taskId}`);
+            const live = liveStatuses[taskId] || {};
             
-            let finalRating = null;
-            if (liveRating) {
-                finalRating = parseInt(liveRating);
-            } else if (savedRating) {
-                finalRating = parseInt(savedRating);
-            } else if (t.rating) {
-                finalRating = parseInt(t.rating);
-            }
-            
-            return { ...t, rating: finalRating };
+            const getRating = (q) => {
+                if (live[`q${q}`] !== undefined && live[`q${q}`] !== null) return parseInt(live[`q${q}`]);
+                const saved = localStorage.getItem(`task_rating_${taskId}_q${q}`);
+                if (saved) return parseInt(saved);
+                if (t[`q${q}`] !== undefined) return parseInt(t[`q${q}`]);
+                return null;
+            };
+
+            return { 
+                ...t, 
+                q1: getRating(1), 
+                q2: getRating(2), 
+                q3: getRating(3), 
+                q4: getRating(4) 
+            };
         });
 
         setStaticData(budgetJson || []);
@@ -211,14 +228,12 @@ const App = () => {
         const term = budgetSearch.toLowerCase();
         if (!String(r.id).includes(term) && !r.name.toLowerCase().includes(term)) return false;
       }
-      
       if (showOnlyBudgetAnomalies) {
         const isExpense = r.type === 'הוצאה';
         const isRevenue = r.type === 'הכנסה';
         const isAnomaly = (isExpense && r.balance < 0) || (isRevenue && r.balance > 0);
         if (!isAnomaly) return false;
       }
-      
       return true;
     });
   }, [fullData, activeWingId, budgetDept, budgetType, budgetSearch, showOnlyBudgetAnomalies]);
@@ -229,10 +244,13 @@ const App = () => {
     if (currentUser?.role === 'DEPT') data = data.filter(item => cleanStr(item.dept) === cleanStr(currentUser.target));
     if (activeWingId) data = data.filter(item => cleanStr(item.wing) === cleanStr(activeWingId));
     if (filterDept !== 'הכל') data = data.filter(t => t.dept === filterDept);
+    
+    // סינון סטטוס מסתכל תמיד על התמונה הכוללת
     if (filterStatus !== 'הכל') {
-      if (filterStatus === 'missing') data = data.filter(t => !t.rating);
-      else data = data.filter(t => t.rating === parseInt(filterStatus));
+      if (filterStatus === 'missing') data = data.filter(t => !getOverallRating(t));
+      else data = data.filter(t => getOverallRating(t) === parseInt(filterStatus));
     }
+    
     if (search) data = data.filter(item => item.task?.includes(search) || String(item.id).includes(search) || item.activity?.includes(search));
     
     if (showOnlyOverdueTasks) {
@@ -240,14 +258,14 @@ const App = () => {
             const taskDate = parseDateLogic(t.deadline);
             const today = new Date();
             today.setHours(0,0,0,0);
-            return taskDate && taskDate < today && (!t.rating || t.rating === 3);
+            const overall = getOverallRating(t);
+            return taskDate && taskDate < today && (!overall || overall === 3);
         });
     }
 
     return data;
   }, [workPlans, currentUser, activeWingId, filterDept, filterStatus, search, showOnlyOverdueTasks]);
 
-  // הכנת הנתונים לגרף המשימות (דינמי: לפי אגף או לפי מחלקה)
   const workplanChartData = useMemo(() => {
       const groupKey = activeWingId === null ? 'wing' : 'dept';
       const uniqueNames = Array.from(new Set(filteredWorkData.map(t => t[groupKey]).filter(Boolean)));
@@ -255,11 +273,9 @@ const App = () => {
       return uniqueNames.map(name => ({
           n: name,
           v: filteredWorkData.filter(t => t[groupKey] === name).length
-      })).sort((a, b) => b.v - a.v); // סינון מהגדול לקטן
+      })).sort((a, b) => b.v - a.v); 
   }, [filteredWorkData, activeWingId]);
 
-
-  // בדיקת הקפצות אוטומטיות
   useEffect(() => {
     if (loading) return;
 
@@ -289,7 +305,8 @@ const App = () => {
 
         const overdueCount = relevantTasks.filter(t => {
             const taskDate = parseDateLogic(t.deadline);
-            return taskDate && taskDate < today && (!t.rating || t.rating === 3);
+            const overall = getOverallRating(t);
+            return taskDate && taskDate < today && (!overall || overall === 3);
         }).length;
 
         if (overdueCount > 0) {
@@ -304,10 +321,10 @@ const App = () => {
     const data = filteredWorkData || [];
     const total = data.length || 1;
     const counts = { 
-        s1: data.filter(t => t.rating === 1).length, 
-        s2: data.filter(t => t.rating === 2).length, 
-        s3: data.filter(t => t.rating === 3).length, 
-        missing: data.filter(t => !t.rating).length 
+        s1: data.filter(t => getOverallRating(t) === 1).length, 
+        s2: data.filter(t => getOverallRating(t) === 2).length, 
+        s3: data.filter(t => getOverallRating(t) === 3).length, 
+        missing: data.filter(t => !getOverallRating(t)).length 
     };
     return { 
       p1: Math.round((counts.s1/total)*100), 
@@ -318,17 +335,19 @@ const App = () => {
     };
   }, [filteredWorkData]);
 
-  const handleStatusSave = async (taskId, newRating) => {
+  const handleStatusSave = async (taskId, newRating, quarter) => {
     setSavingId(taskId);
-    localStorage.setItem(`task_rating_${taskId}`, newRating);
+    const parsedRating = newRating === "" ? null : parseInt(newRating);
+    localStorage.setItem(`task_rating_${taskId}_q${quarter}`, newRating);
+    
     try {
         await fetch(GAS_SCRIPT_URL, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ id: taskId, rating: parseInt(newRating) })
+            body: JSON.stringify({ id: taskId, rating: newRating === "" ? "" : parsedRating, quarter: quarter })
         });
-        setWorkPlans(prev => prev.map(t => t.id === taskId ? { ...t, rating: parseInt(newRating) } : t));
+        setWorkPlans(prev => prev.map(t => t.id === taskId ? { ...t, [`q${quarter}`]: parsedRating } : t));
     } catch (e) {
         console.error("Save Error:", e);
         alert("שגיאה בסנכרון מול גוגל שיטס. נסה שוב.");
@@ -354,7 +373,10 @@ const App = () => {
   };
 
   const downloadWorkPlanExcel = () => {
-    const headers = ["ID", "אגף", "מחלקה", "פעילות", "משימה", "לוז", "יעד הצלחה", "סטטוס"];
+    const headers = ["ID", "אגף", "מחלקה", "פעילות", "משימה", "לוז", "יעד הצלחה", "סטטוס רבעון 1", "סטטוס רבעון 2", "סטטוס רבעון 3", "סטטוס רבעון 4"];
+    
+    const formatStatus = (val) => val === 1 ? "בוצע" : val === 2 ? "בתהליך" : val === 3 ? "לא בוצע" : "טרם עודכן";
+    
     const rows = filteredWorkData.map(t => [
         t.id, 
         t.wing, 
@@ -363,7 +385,10 @@ const App = () => {
         `"${(t.task || "").replace(/"/g, '""')}"`, 
         formatDate(t.deadline), 
         `"${(t.success_target || "").replace(/"/g, '""')}"`, 
-        t.rating === 1 ? "בוצע" : t.rating === 2 ? "בתהליך" : t.rating === 3 ? "לא בוצע" : "טרם עודכן"
+        formatStatus(t.q1),
+        formatStatus(t.q2),
+        formatStatus(t.q3),
+        formatStatus(t.q4)
     ]);
     
     const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
@@ -428,7 +453,7 @@ const App = () => {
                 </div>
                 <div className="p-8">
                     <h3 className="text-2xl font-black text-slate-800 mb-2">עיכוב במשימות</h3>
-                    <p className="text-slate-600 font-bold mb-8">יש לך <span className="text-amber-600 font-black">{popupData.count}</span> משימות שעבר המועד שלהן וטרם עודכן להן סטטוס ביצוע.</p>
+                    <p className="text-slate-600 font-bold mb-8">יש לך <span className="text-amber-600 font-black">{popupData.count}</span> משימות שעבר המועד שלהן וטרם טופלו.</p>
                     <div className="flex flex-col gap-3">
                         <button onClick={() => { setShowOnlyOverdueTasks(true); setActivePopup(null); }} className="w-full py-4 bg-amber-500 text-white font-black rounded-xl shadow-lg hover:bg-amber-600 transition-colors">הצג משימות באיחור</button>
                         <button onClick={() => setActivePopup(null)} className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">סגור והמשך לתצוגה המלאה</button>
@@ -462,7 +487,6 @@ const App = () => {
         {/* Sidebar */}
         <aside className={`fixed inset-0 z-[300] bg-white transition-transform duration-300 transform lg:static lg:block lg:w-72 lg:h-[calc(100vh-64px)] lg:border-l ${isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}`}>
           <div className="flex flex-col h-full bg-white">
-             {/* Mobile Close Button */}
              <div className="lg:hidden flex justify-between items-center p-4 border-b">
                 <span className="font-black text-slate-800 text-lg">תפריט בחירה</span>
                 <button onClick={() => setIsMenuOpen(false)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">
@@ -471,7 +495,7 @@ const App = () => {
              </div>
              <div className="p-6 space-y-2 border-b">
                 <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span></button>
-                <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">{mainTab === 'budget' ? 'פירוט תקציב' : 'פירוט משימות'}</span></button>
+                <button onClick={() => { setViewMode('table'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><TableProperties size={20} /> <span className="font-bold">{mainTab === 'budget' ? 'פירוט תקציב' : 'פירוט ועדכון'}</span></button>
                 {mainTab === 'budget' && <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl transition-all ${viewMode === 'control' ? 'bg-red-700 text-white shadow-lg' : 'text-red-600 font-bold hover:bg-red-50'}`}><ShieldAlert size={20} /> <span className="font-bold">בקרה תקציבית</span></button>}
              </div>
              <div className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -536,7 +560,6 @@ const App = () => {
                 {/* Budget Detail Table */}
                 {viewMode === 'table' && (
                   <div className="space-y-4">
-                    {/* Budget Filters */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border mb-4">
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-slate-400">חיפוש סעיף / שם</label>
@@ -559,7 +582,6 @@ const App = () => {
                         </div>
                     </div>
 
-                    {/* Column Toggles */}
                     <div className="flex flex-wrap gap-3 bg-white p-4 rounded-3xl shadow-sm border mb-4">
                       <button onClick={() => setVisibleCols(p => ({...p, a2024: !p.a2024}))} className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${visibleCols.a2024 ? 'bg-emerald-800 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>ביצוע 24</button>
                       <button onClick={() => setVisibleCols(p => ({...p, b2025: !p.b2025}))} className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${visibleCols.b2025 ? 'bg-emerald-800 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>תקציב 25</button>
@@ -603,7 +625,6 @@ const App = () => {
                 {/* Budget Control Table */}
                 {viewMode === 'control' && (
                   <div className="space-y-4">
-                    {/* Budget Filters for Control View */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white p-4 rounded-3xl shadow-sm border mb-4">
                         <div className="space-y-1">
                             <label className="text-[10px] font-black text-slate-400">חיפוש סעיף / שם</label>
@@ -695,6 +716,31 @@ const App = () => {
               </div>
             ) : (
               <div className="space-y-6">
+                
+                {/* Workplan Quarter Selector (Only shown in table view for updating) */}
+                {viewMode === 'table' && (
+                  <div className="bg-white p-4 rounded-3xl shadow-sm border flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+                      <div className="bg-emerald-50 text-emerald-800 p-2 rounded-xl flex items-center justify-center">
+                          <Clock size={24} />
+                      </div>
+                      <div>
+                          <label className="text-sm font-black text-slate-800 block mb-1">עדכון משימות לרבעון:</label>
+                          <p className="text-[10px] font-bold text-slate-400">בחר רבעון כדי לעדכן סטטוס חדש</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mr-auto w-full sm:w-auto">
+                          {[1, 2, 3, 4].map(q => (
+                              <button 
+                                  key={q}
+                                  onClick={() => setWorkplanQuarter(q)}
+                                  className={`flex-1 sm:flex-none px-6 py-2.5 rounded-xl font-black text-sm transition-all ${workplanQuarter === q ? 'bg-emerald-800 text-white shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                              >
+                                  רבעון {q}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+                )}
+
                 {/* Workplan Dashboard */}
                 {viewMode === 'dashboard' ? (
                   <>
@@ -763,7 +809,6 @@ const App = () => {
                                 <BarChart data={workplanChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.1} />
                                     <XAxis type="number" hide />
-                                    {/* הגדרת orientation="right" מונעת חפיפה בעברית ושמה את הטקסט בימין מחוץ לגרף */}
                                     <YAxis dataKey="n" type="category" orientation="right" width={150} tick={{fontSize: 11, fontWeight: 'black', fill: '#1e293b'}} axisLine={false} tickLine={false} />
                                     <Tooltip cursor={{fill: '#f1f5f9'}} />
                                     <Bar dataKey="v" radius={[10, 0, 0, 10]} barSize={25} fill="#3b82f6" />
@@ -805,16 +850,20 @@ const App = () => {
                                     <th className="p-4" style={{width: '35%'}}>משימה</th>
                                     <th className="p-4" style={{width: '10%'}}>לו"ז</th>
                                     <th className="p-4" style={{width: '13%'}}>יעד הצלחה</th>
-                                    <th className="p-4 text-center" style={{width: '10%'}}>סטטוס סנכרון</th>
+                                    <th className="p-4 text-center" style={{width: '10%'}}>עדכון (רבעון {workplanQuarter})</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
                                 {filteredWorkData.map(task => {
                                     const taskDate = parseDateLogic(task.deadline);
-                                    const isOverdue = taskDate && taskDate < new Date() && (!task.rating || task.rating === 3);
+                                    const overallRating = getOverallRating(task);
+                                    const updatedQuarter = getUpdatedQuarter(task);
+                                    const currentRating = task[`q${workplanQuarter}`];
+                                    
+                                    const isOverdue = taskDate && taskDate < new Date() && (!overallRating || overallRating === 3);
                                     
                                     return (
-                                        <tr key={task.id} className={`hover:bg-emerald-50 transition-colors group ${task.rating === 1 ? 'bg-emerald-50/40' : ''} ${isOverdue && showOnlyOverdueTasks ? 'bg-amber-50/50' : ''}`}>
+                                        <tr key={task.id} className={`hover:bg-emerald-50 transition-colors group ${currentRating === 1 ? 'bg-emerald-50/40' : ''} ${isOverdue && showOnlyOverdueTasks ? 'bg-amber-50/50' : ''}`}>
                                             <td className="p-4 text-slate-300 font-mono text-[10px] group-hover:text-emerald-700 transition-colors">#{task.id}</td>
                                             <td className="p-4 text-xs font-black text-emerald-800">{task.dept}</td>
                                             <td className="p-4 text-[10px] text-slate-600 font-bold leading-tight">{task.activity}</td>
@@ -822,20 +871,26 @@ const App = () => {
                                             <td className={`p-4 text-[10px] font-black ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>{formatDate(task.deadline)}</td>
                                             <td className="p-4 text-[10px] text-slate-600 leading-tight max-w-[200px] truncate hover:whitespace-normal hover:break-words">{task.success_target}</td>
                                             <td className="p-4 text-center">
-                                                <div className="flex items-center gap-2">
-                                                    <select 
-                                                        disabled={savingId === task.id} 
-                                                        value={task.rating || ""} 
-                                                        onChange={(e) => handleStatusSave(task.id, e.target.value)} 
-                                                        className={`flex-1 p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer shadow-sm ${task.rating === 1 ? 'bg-emerald-100 text-emerald-700' : task.rating === 2 ? 'bg-amber-100 text-amber-700' : task.rating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}
-                                                    >
-                                                        <option value="">-</option>
-                                                        <option value="1">בוצע</option>
-                                                        <option value="2">בתהליך</option>
-                                                        <option value="3">לא בוצע</option>
-                                                    </select>
-                                                    {savingId === task.id && <Loader2 size={14} className="animate-spin text-emerald-600" />}
-                                                </div>
+                                                {updatedQuarter && updatedQuarter !== workplanQuarter ? (
+                                                    <div className="bg-slate-100 text-slate-500 font-bold text-[10px] p-2 rounded-xl text-center shadow-inner border border-slate-200">
+                                                        עודכן ברבעון {updatedQuarter}
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex items-center gap-2">
+                                                        <select 
+                                                            disabled={savingId === task.id} 
+                                                            value={currentRating || ""} 
+                                                            onChange={(e) => handleStatusSave(task.id, e.target.value, workplanQuarter)} 
+                                                            className={`flex-1 p-1.5 rounded-xl text-[10px] font-black border-none outline-none cursor-pointer shadow-sm ${currentRating === 1 ? 'bg-emerald-100 text-emerald-700' : currentRating === 2 ? 'bg-amber-100 text-amber-700' : currentRating === 3 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-400'}`}
+                                                        >
+                                                            <option value="">-</option>
+                                                            <option value="1">בוצע</option>
+                                                            <option value="2">בתהליך</option>
+                                                            <option value="3">לא בוצע</option>
+                                                        </select>
+                                                        {savingId === task.id && <Loader2 size={14} className="animate-spin text-emerald-600" />}
+                                                    </div>
+                                                )}
                                             </td>
                                         </tr>
                                     )
