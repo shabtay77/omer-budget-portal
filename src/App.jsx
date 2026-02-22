@@ -101,7 +101,7 @@ const App = () => {
   // מנגנון פופ-אפים והתראות
   const [hasSeenBudgetPopup, setHasSeenBudgetPopup] = useState(false);
   const [hasSeenWorkplanPopup, setHasSeenWorkplanPopup] = useState(false);
-  const [activePopup, setActivePopup] = useState(null); // null | 'budget' | 'workplan'
+  const [activePopup, setActivePopup] = useState(null);
   const [popupData, setPopupData] = useState({ count: 0 });
   const [showOnlyBudgetAnomalies, setShowOnlyBudgetAnomalies] = useState(false);
   const [showOnlyOverdueTasks, setShowOnlyOverdueTasks] = useState(false);
@@ -212,7 +212,6 @@ const App = () => {
         if (!String(r.id).includes(term) && !r.name.toLowerCase().includes(term)) return false;
       }
       
-      // סינון חריגות מקפץ
       if (showOnlyBudgetAnomalies) {
         const isExpense = r.type === 'הוצאה';
         const isRevenue = r.type === 'הכנסה';
@@ -236,7 +235,6 @@ const App = () => {
     }
     if (search) data = data.filter(item => item.task?.includes(search) || String(item.id).includes(search) || item.activity?.includes(search));
     
-    // סינון משימות באיחור מקפץ
     if (showOnlyOverdueTasks) {
         data = data.filter(t => {
             const taskDate = parseDateLogic(t.deadline);
@@ -249,11 +247,22 @@ const App = () => {
     return data;
   }, [workPlans, currentUser, activeWingId, filterDept, filterStatus, search, showOnlyOverdueTasks]);
 
+  // הכנת הנתונים לגרף המשימות (דינמי: לפי אגף או לפי מחלקה)
+  const workplanChartData = useMemo(() => {
+      const groupKey = activeWingId === null ? 'wing' : 'dept';
+      const uniqueNames = Array.from(new Set(filteredWorkData.map(t => t[groupKey]).filter(Boolean)));
+      
+      return uniqueNames.map(name => ({
+          n: name,
+          v: filteredWorkData.filter(t => t[groupKey] === name).length
+      })).sort((a, b) => b.v - a.v); // סינון מהגדול לקטן
+  }, [filteredWorkData, activeWingId]);
+
+
   // בדיקת הקפצות אוטומטיות
   useEffect(() => {
     if (loading) return;
 
-    // פופאפ תקציב
     if (mainTab === 'budget' && viewMode === 'control' && !hasSeenBudgetPopup) {
         const anomaliesCount = fullData.filter(r => {
             if (activeWingId !== null && cleanStr(r.wing) !== cleanStr(activeWingId)) return false;
@@ -269,7 +278,6 @@ const App = () => {
         }
     }
 
-    // פופאפ תכניות עבודה (איחורים)
     if (mainTab === 'workplan' && viewMode === 'table' && !hasSeenWorkplanPopup) {
         const today = new Date();
         today.setHours(0,0,0,0);
@@ -291,7 +299,6 @@ const App = () => {
         }
     }
   }, [mainTab, viewMode, loading, fullData, workPlans, activeWingId, currentUser, hasSeenBudgetPopup, hasSeenWorkplanPopup]);
-
 
   const workStats = useMemo(() => {
     const data = filteredWorkData || [];
@@ -748,8 +755,21 @@ const App = () => {
                           <div className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{ name: 'בוצע', value: workStats.counts.s1 }, { name: 'בתהליך', value: workStats.counts.s2 }, { name: 'לא בוצע', value: workStats.counts.s3 }, { name: 'טרם עודכן', value: workStats.counts.missing }]} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={70} outerRadius={100} paddingAngle={5}>{[ '#10b981', '#f59e0b', '#ef4444', '#e2e8f0' ].map((c, i) => <Cell key={i} fill={c} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
                       </div>
                       <div className="bg-white p-8 rounded-[3rem] shadow-sm border min-h-[400px]">
-                          <h3 className="font-black text-slate-800 mb-6 border-r-8 border-blue-500 pr-3">משימות לפי מחלקה</h3>
-                          <div className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={Array.from(new Set(filteredWorkData.map(t => t.dept))).map(d => ({ n: d, v: filteredWorkData.filter(t => t.dept === d).length }))} layout="vertical" margin={{ left: 30, right: 30 }}><CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.1} /><XAxis type="number" hide /><YAxis dataKey="n" type="category" width={120} tick={{fontSize: 10, fontWeight: 'black', fill: '#1e293b'}} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="v" radius={[0, 10, 10, 0]} barSize={25} fill="#3b82f6" /></BarChart></ResponsiveContainer></div>
+                          <h3 className="font-black text-slate-800 mb-6 border-r-8 border-blue-500 pr-3">
+                            {activeWingId === null ? 'משימות לפי אגף' : 'משימות לפי מחלקה'}
+                          </h3>
+                          <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={workplanChartData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} opacity={0.1} />
+                                    <XAxis type="number" hide />
+                                    {/* הגדרת orientation="right" מונעת חפיפה בעברית ושמה את הטקסט בימין מחוץ לגרף */}
+                                    <YAxis dataKey="n" type="category" orientation="right" width={150} tick={{fontSize: 11, fontWeight: 'black', fill: '#1e293b'}} axisLine={false} tickLine={false} />
+                                    <Tooltip cursor={{fill: '#f1f5f9'}} />
+                                    <Bar dataKey="v" radius={[10, 0, 0, 10]} barSize={25} fill="#3b82f6" />
+                                </BarChart>
+                            </ResponsiveContainer>
+                          </div>
                       </div>
                     </div>
                   </>
