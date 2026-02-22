@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie } from 'recharts';
-import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, ShieldAlert, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Download, Save, Menu, X, Loader2 } from 'lucide-react';
+import { LayoutDashboard, UserRound, Building2, HardHat, GraduationCap, Wallet, Truck, Users, Megaphone, TableProperties, Lock, CheckCircle2, Clock, AlertCircle, HelpCircle, Save, Menu, X, Loader2 } from 'lucide-react';
 
-// הדבק כאן את הקישורים החדשים שלך
 const SHEETS_CSV_URL = "הדבק_כאן_את_קישור_ה_CSV_שלך";
-const GAS_SCRIPT_URL = "הדבק_כאן_את_קישור_ה_EXEC_החדש_שלך";
+const GAS_SCRIPT_URL = "הדבק_כאן_את_קישור_ה_EXEC_שלך";
 
 const USERS_DB = [
   { user: "aharony", pass: "1234", role: "ADMIN", target: null },
@@ -50,7 +49,6 @@ const App = () => {
   const [pendingChanges, setPendingChanges] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState('');
-  const [filterDept, setFilterDept] = useState('הכל');
 
   const loadData = async () => {
     setLoading(true);
@@ -65,24 +63,23 @@ const App = () => {
       const csv = await sRes.text();
 
       const rows = csv.split('\n').map(r => r.split(','));
-      const headers = rows[0].map(h => h.trim().toLowerCase());
-      const idIdx = headers.findIndex(h => h.includes('id'));
       const statusIdx = 10; // עמודה 11 (K)
-      const a26Idx = headers.findIndex(h => h.includes('a2026'));
 
       const liveStatus = {};
       const execMap = {};
       rows.slice(1).forEach(cols => {
-        const id = cols[idIdx]?.trim();
+        const id = cols[0]?.trim();
         if (id) {
-          execMap[id] = parseFloat(String(cols[a26Idx] || "0").replace(/,/g, '')) || 0;
           liveStatus[id] = parseInt(cols[statusIdx]) || 0;
+          // מציאת עמודת הביצוע לפי שם (a2026)
+          const a26Idx = rows[0].findIndex(h => h.toLowerCase().includes('a2026'));
+          if (a26Idx !== -1) execMap[id] = parseFloat(String(cols[a26Idx]).replace(/,/g,'')) || 0;
         }
       });
 
       setStaticData(bJson);
       setExecutionMap(execMap);
-      setWorkPlans(wJson.filter(t => t.id).map(t => ({
+      setWorkPlans(wJson.map(t => ({
         ...t,
         "דירוג רבעון 2": liveStatus[String(t.id)] !== undefined ? liveStatus[String(t.id)] : (t["דירוג רבעון 2"] || 0)
       })));
@@ -93,9 +90,9 @@ const App = () => {
   useEffect(() => { loadData(); }, []);
 
   const budgetStats = useMemo(() => {
-    const data = staticData.filter(r => (!activeWingId || r.wing === activeWingId) && r.type === 'הוצאה');
-    return data.reduce((acc, curr) => {
-      acc.total += parseFloat(String(curr.b2026 || "0").replace(/,/g, '')) || 0;
+    const filtered = staticData.filter(r => (!activeWingId || r.wing === activeWingId) && r.type === 'הוצאה');
+    return filtered.reduce((acc, curr) => {
+      acc.total += parseFloat(String(curr.b2026).replace(/,/g,'')) || 0;
       acc.exec += executionMap[curr.id] || 0;
       return acc;
     }, { total: 0, exec: 0 });
@@ -106,18 +103,16 @@ const App = () => {
     if (currentUser?.role === 'WING') data = data.filter(t => t.wing === currentUser.target);
     if (currentUser?.role === 'DEPT') data = data.filter(t => t.dept === currentUser.target);
     if (activeWingId) data = data.filter(t => t.wing === activeWingId);
-    if (filterDept !== 'הכל') data = data.filter(t => t.dept === filterDept);
     if (search) data = data.filter(t => t.task?.includes(search) || t.dept?.includes(search));
     return data;
-  }, [workPlans, currentUser, activeWingId, filterDept, search]);
+  }, [workPlans, currentUser, activeWingId, search]);
 
   const workStats = useMemo(() => {
     const total = filteredWorkData.length || 1;
     const s1 = filteredWorkData.filter(t => t["דירוג רבעון 2"] === 1).length;
     const s2 = filteredWorkData.filter(t => t["דירוג רבעון 2"] === 2).length;
     const s3 = filteredWorkData.filter(t => t["דירוג רבעון 2"] === 3).length;
-    const m = total - (s1 + s2 + s3);
-    return { p1: Math.round((s1/total)*100), p2: Math.round((s2/total)*100), p3: Math.round((s3/total)*100), s1, s2, s3, m };
+    return { p1: Math.round((s1/total)*100), p2: Math.round((s2/total)*100), p3: Math.round((s3/total)*100), s1, s2, s3, m: total-(s1+s2+s3) };
   }, [filteredWorkData]);
 
   const handleSave = async () => {
@@ -129,12 +124,12 @@ const App = () => {
       }
       alert("השינויים נשמרו בשיטס!");
       setPendingChanges([]);
-      loadData(); 
-    } catch (e) { alert("תקלה בשמירה"); }
+      loadData();
+    } catch (e) { alert("שגיאה בשמירה"); }
     finally { setIsSaving(false); }
   };
 
-  const login = (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
     const user = USERS_DB.find(u => u.user.toLowerCase() === uInput.toLowerCase() && u.pass === pInput);
     if (user) {
@@ -145,25 +140,25 @@ const App = () => {
   };
 
   if (!isLoggedIn) return (
-    <div className="h-screen bg-slate-100 flex items-center justify-center p-6 font-sans text-right" dir="rtl">
+    <div className="h-screen bg-slate-100 flex items-center justify-center p-6 font-sans" dir="rtl">
       <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-200">
         <h1 className="text-2xl font-black text-slate-800 mb-8 text-center">פורטל מועצת עומר</h1>
-        <form onSubmit={login} className="space-y-4">
-          <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold" value={uInput} onChange={e => setUInput(e.target.value)} />
-          <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold" value={pInput} onChange={e => setPInput(e.target.value)} />
+        <form onSubmit={handleLogin} className="space-y-4">
+          <input type="text" placeholder="שם משתמש" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={uInput} onChange={e => setUInput(e.target.value)} />
+          <input type="password" placeholder="סיסמה" className="w-full p-4 rounded-2xl bg-slate-50 border outline-none font-bold text-right" value={pInput} onChange={e => setPInput(e.target.value)} />
           <button type="submit" className="w-full bg-emerald-800 text-white p-4 rounded-2xl font-black text-lg">כניסה</button>
         </form>
       </div>
     </div>
   );
 
-  if (loading && !workPlans.length) return <div className="h-screen flex items-center justify-center bg-white font-black text-emerald-800" dir="rtl">טוען נתונים...</div>;
+  if (loading && !workPlans.length) return <div className="h-screen flex items-center justify-center font-black text-emerald-800" dir="rtl">טוען...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-right" dir="rtl">
       {pendingChanges.length > 0 && (
-        <button onClick={handleSave} disabled={isSaving} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white px-8 py-4 rounded-full font-black shadow-2xl flex items-center gap-2 border-4 border-white animate-bounce">
-          {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20}/>} שמור {pendingChanges.length} שינויים
+        <button onClick={handleSave} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1000] bg-blue-600 text-white px-8 py-4 rounded-full font-black shadow-2xl flex items-center gap-2 border-4 border-white animate-bounce">
+          {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20}/>} שמור שינויים
         </button>
       )}
 
@@ -181,23 +176,23 @@ const App = () => {
 
       <div className="flex flex-1">
         <aside className={`${isMenuOpen ? 'fixed inset-0 z-[600] flex' : 'hidden'} lg:static lg:block lg:w-72 bg-white border-l`}>
-          <div className="bg-white w-72 h-full flex flex-col p-6 shadow-xl lg:shadow-none">
+          <div className="bg-white w-72 h-full flex flex-col p-6">
             <button onClick={()=>setIsMenuOpen(false)} className="lg:hidden self-end mb-4"><X/></button>
             <div className="space-y-2 mb-8">
-              <button onClick={()=>{setViewMode('dashboard'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><LayoutDashboard size={20}/> <span className="font-bold">תמונת מצב</span></button>
-              <button onClick={()=>{setViewMode('table'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'table' ? 'bg-emerald-800 text-white shadow-lg' : 'text-slate-600 hover:bg-emerald-50'}`}><TableProperties size={20}/> <span className="font-bold">פירוט מלא</span></button>
+              <button onClick={()=>{setViewMode('dashboard'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'dashboard' ? 'bg-emerald-800 text-white' : 'text-slate-600'}`}><LayoutDashboard size={20}/> <span className="font-bold">תמונת מצב</span></button>
+              <button onClick={()=>{setViewMode('table'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-4 rounded-2xl ${viewMode === 'table' ? 'bg-emerald-800 text-white' : 'text-slate-600'}`}><TableProperties size={20}/> <span className="font-bold">פירוט מלא</span></button>
             </div>
-            <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">אגפים</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest text-right">אגפים</p>
             <div className="overflow-y-auto flex-1 space-y-1">
               {currentUser.role === 'ADMIN' ? (
                 <>
-                  <button onClick={()=>{setActiveWingId(null); setFilterDept('הכל'); setIsMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl font-bold ${!activeWingId ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500'}`}>כלל המועצה</button>
+                  <button onClick={()=>{setActiveWingId(null); setIsMenuOpen(false);}} className={`w-full text-right p-3 rounded-xl font-bold ${!activeWingId ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500'}`}>כלל המועצה</button>
                   {Object.keys(ICONS).map(name => (
-                    <button key={name} onClick={()=>{setActiveWingId(name); setFilterDept('הכל'); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl ${activeWingId === name ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>{React.createElement(ICONS[name], {size:16})} <span>{name}</span></button>
+                    <button key={name} onClick={()=>{setActiveWingId(name); setIsMenuOpen(false);}} className={`w-full flex items-center gap-3 p-3 rounded-xl ${activeWingId === name ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-50'}`}>{React.createElement(ICONS[name], {size:16})} <span>{name}</span></button>
                   ))}
                 </>
               ) : (
-                <div className="bg-emerald-50 text-emerald-800 p-4 rounded-2xl font-black flex items-center gap-3 border border-emerald-100 shadow-sm">
+                <div className="bg-emerald-50 text-emerald-800 p-4 rounded-2xl font-black flex items-center gap-3">
                   {React.createElement(ICONS[activeWingId] || Building2, {size:20})} {activeWingId}
                 </div>
               )}
@@ -215,66 +210,49 @@ const App = () => {
                 <div className="bg-white p-6 rounded-3xl border shadow-sm"><p className="text-[10px] font-bold text-slate-400 uppercase">תקציב 2026</p><p className="text-2xl font-black text-emerald-800">{formatILS(budgetStats.total)}</p></div>
                 <div className="bg-white p-6 rounded-3xl border shadow-sm"><p className="text-[10px] font-bold text-slate-400 uppercase">ביצוע בפועל</p><p className="text-2xl font-black text-blue-800">{formatILS(budgetStats.exec)}</p></div>
               </div>
-              {viewMode === 'dashboard' ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[400px]">
-                  <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col items-center">
-                    <h3 className="font-black mb-4 border-r-4 border-emerald-500 pr-2 self-start">התפלגות אגפים</h3>
-                    <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={Object.keys(ICONS).map(w => ({name:w, value: staticData.filter(r=>r.wing===w && r.type==='הוצאה').reduce((a,c)=>a+(parseFloat(String(c.b2026).replace(/,/g,''))||0),0)})).filter(v=>v.value>0)} dataKey="value" innerRadius={60} outerRadius={100} paddingAngle={5}>{[ '#3b82f6', '#10b981', '#f59e0b', '#ef4444' ].map((c,i)=><Cell key={i} fill={c}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer>
-                  </div>
-                  <div className="bg-white p-8 rounded-[2.5rem] border shadow-sm flex flex-col items-center">
-                    <h3 className="font-black mb-4 border-r-4 border-blue-500 pr-2 self-start">תקציב מול ביצוע</h3>
-                    <ResponsiveContainer width="100%" height="100%"><BarChart data={[{name:'תקציב', v:budgetStats.total}, {name:'ביצוע', v:budgetStats.exec}]}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="name"/><YAxis hide/><Tooltip formatter={(v)=>formatILS(v)}/><Bar dataKey="v" fill="#3b82f6" radius={[10,10,0,0]} barSize={50}/></BarChart></ResponsiveContainer>
-                  </div>
-                </div>
-              ) : (
-                <div className="bg-white rounded-3xl border shadow-sm overflow-x-auto p-4">
-                  <table className="w-full text-right border-collapse">
-                    <thead><tr className="bg-slate-50 text-[10px] font-black border-b uppercase"><th className="p-4 text-right">סעיף</th><th className="text-right">תיאור</th><th className="text-left">תקציב</th><th className="text-left">ביצוע</th></tr></thead>
-                    <tbody className="divide-y text-right">{staticData.filter(r => (!activeWingId || r.wing === activeWingId) && (!search || r.name.includes(search))).map(row => (
-                      <tr key={row.id} className="hover:bg-slate-50"><td className="p-4 font-mono text-[10px] text-slate-400">#{row.id}</td><td className="p-4 font-black text-xs">{row.name}</td><td className="p-4 text-left font-bold text-emerald-800">{formatILS(parseFloat(String(row.b2026).replace(/,/g,'')))}</td><td className="p-4 text-left font-black text-blue-800">{formatILS(executionMap[row.id] || 0)}</td></tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              )}
+              <div className="bg-white rounded-3xl border shadow-sm overflow-x-auto p-4">
+                <table className="w-full text-right">
+                  <thead><tr className="bg-slate-50 text-[10px] font-black border-b uppercase"><th className="p-4 text-right">סעיף</th><th className="text-right">תיאור</th><th className="text-left">תקציב</th><th className="text-left">ביצוע</th></tr></thead>
+                  <tbody className="divide-y">{staticData.filter(r => (!activeWingId || r.wing === activeWingId) && (!search || r.name.includes(search))).map(row => (
+                    <tr key={row.id} className="hover:bg-slate-50"><td className="p-4 font-mono text-[10px] text-slate-400">#{row.id}</td><td className="p-4 font-black text-xs">{row.name}</td><td className="p-4 text-left font-bold text-emerald-800">{formatILS(parseFloat(String(row.b2026).replace(/,/g,'')))}</td><td className="p-4 text-left font-black text-blue-800">{formatILS(executionMap[row.id] || 0)}</td></tr>
+                  ))}</tbody>
+                </table>
+              </div>
             </div>
           ) : (
             <div className="space-y-8">
               {viewMode === 'dashboard' ? (
-                <>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><CheckCircle2 className="text-emerald-500 mb-2" size={32}/><p className="text-[11px] font-black">בוצע</p><p className="text-3xl font-black">{workStats.p1}%</p></div>
-                    <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><Clock className="text-amber-500 mb-2" size={32}/><p className="text-[11px] font-black">בתהליך</p><p className="text-3xl font-black">{workStats.p2}%</p></div>
-                    <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><AlertCircle className="text-red-500 mb-2" size={32}/><p className="text-[11px] font-black">לא בוצע</p><p className="text-3xl font-black">{workStats.p3}%</p></div>
-                    <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><HelpCircle className="text-slate-300 mb-2" size={32}/><p className="text-[11px] font-black">טרם עודכן</p><p className="text-3xl font-black">{workStats.s1 + workStats.s2 + workStats.s3}/{total} משימות</p></div>
-                  </div>
-                </>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><CheckCircle2 className="text-emerald-500 mb-2" size={32}/><p className="text-[11px] font-black">בוצע</p><p className="text-3xl font-black">{workStats.p1}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><Clock className="text-amber-500 mb-2" size={32}/><p className="text-[11px] font-black">בתהליך</p><p className="text-3xl font-black">{workStats.p2}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><AlertCircle className="text-red-500 mb-2" size={32}/><p className="text-[11px] font-black">לא בוצע</p><p className="text-3xl font-black">{workStats.p3}%</p></div>
+                  <div className="bg-white p-6 rounded-3xl border flex flex-col items-center"><HelpCircle className="text-slate-300 mb-2" size={32}/><p className="text-[11px] font-black">טרם עודכן</p><p className="text-3xl font-black">{workStats.m}</p></div>
+                </div>
               ) : (
-                <div className="space-y-4">
-                  <div className="bg-white rounded-3xl border shadow-sm overflow-x-auto text-right">
-                    <table className="w-full text-right min-w-[800px] border-collapse">
-                      <thead className="bg-slate-50 text-[10px] font-black border-b uppercase">
-                        <tr><th className="p-4" style={{width:'5%'}}>#</th><th className="p-4" style={{width:'15%'}}>מחלקה</th><th className="p-4" style={{width:'50%'}}>משימה</th><th className="p-4 text-center" style={{width:'15%'}}>סטטוס</th></tr>
-                      </thead>
-                      <tbody className="divide-y text-right">
-                        {filteredWorkData.map(t => (
-                          <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="p-4 font-mono text-[10px] text-slate-300">#{t.id}</td>
-                            <td className="p-4 text-xs font-black text-emerald-800">{t.dept}</td>
-                            <td className="p-4 text-xs font-black leading-relaxed">{t.task}</td>
-                            <td className="p-4 text-center">
-                              <select value={t["דירוג רבעון 2"] || ""} onChange={(e)=>{
-                                const val = parseInt(e.target.value);
-                                setWorkPlans(prev => prev.map(item => item.id === t.id ? {...item, "דירוג רבעון 2": val} : item));
-                                setPendingChanges(prev => [...prev.filter(c => c.id !== t.id), {id: t.id, val}]);
-                              }} className={`p-1.5 rounded-xl text-[10px] font-black w-full outline-none border shadow-sm ${t["דירוג רבעון 2"] === 1 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : t["דירוג רבעון 2"] === 2 ? 'bg-amber-100 text-amber-700 border-amber-200' : t["דירוג רבעון 2"] === 3 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
-                                <option value="">-</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option>
-                              </select>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                <div className="bg-white rounded-3xl border shadow-sm overflow-x-auto text-right">
+                  <table className="w-full text-right min-w-[800px] border-collapse">
+                    <thead className="bg-slate-50 text-[10px] font-black border-b uppercase">
+                      <tr><th className="p-4" style={{width:'5%'}}>#</th><th className="p-4" style={{width:'15%'}}>מחלקה</th><th className="p-4" style={{width:'50%'}}>משימה</th><th className="p-4 text-center" style={{width:'15%'}}>סטטוס</th></tr>
+                    </thead>
+                    <tbody className="divide-y text-right">
+                      {filteredWorkData.map(t => (
+                        <tr key={t.id} className="hover:bg-slate-50">
+                          <td className="p-4 font-mono text-[10px] text-slate-300">#{t.id}</td>
+                          <td className="p-4 text-xs font-black text-emerald-800">{t.dept}</td>
+                          <td className="p-4 text-xs font-black leading-relaxed">{t.task}</td>
+                          <td className="p-4 text-center">
+                            <select value={t["דירוג רבעון 2"] || ""} onChange={(e)=>{
+                              const val = parseInt(e.target.value);
+                              setWorkPlans(prev => prev.map(item => item.id === t.id ? {...item, "דירוג רבעון 2": val} : item));
+                              setPendingChanges(prev => [...prev.filter(c => c.id !== t.id), {id: t.id, val}]);
+                            }} className={`p-1.5 rounded-xl text-[10px] font-black w-full outline-none border shadow-sm ${t["דירוג רבעון 2"] === 1 ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : t["דירוג רבעון 2"] === 2 ? 'bg-amber-100 text-amber-700 border-amber-200' : t["דירוג רבעון 2"] === 3 ? 'bg-red-100 text-red-700 border-red-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
+                              <option value="">-</option><option value="1">בוצע</option><option value="2">בתהליך</option><option value="3">לא בוצע</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
