@@ -64,10 +64,10 @@ const ICONS = {
 };
 
 const STATUS_CONFIG = {
-  1: { label: "בוצע", color: "#10b981", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
-  2: { label: "עיכוב", color: "#f59e0b", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
-  3: { label: "עצירה", color: "#ef4444", bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
-  4: { label: "ממתין", color: "#94a3b8", bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200" }
+  1: { label: "בוצע", color: "#10b981", bg: "bg-emerald-50", hoverBg: "hover:bg-emerald-100", text: "text-emerald-700", border: "border-emerald-200" },
+  2: { label: "עיכוב", color: "#f59e0b", bg: "bg-amber-50", hoverBg: "hover:bg-amber-100", text: "text-amber-700", border: "border-amber-200" },
+  3: { label: "עצירה", color: "#ef4444", bg: "bg-red-50", hoverBg: "hover:bg-red-100", text: "text-red-700", border: "border-red-200" },
+  4: { label: "ממתין", color: "#94a3b8", bg: "bg-slate-100", hoverBg: "hover:bg-slate-200", text: "text-slate-600", border: "border-slate-200" }
 };
 
 const PIE_COLORS = ['#0d9488', '#0284c7', '#6366f1', '#ea580c', '#e11d48', '#475569', '#16a34a'];
@@ -208,16 +208,25 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
       </button>
 
       {open && (
-        <div className="absolute z-[100] mt-1.5 w-full bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2">
-          {Object.entries(STATUS_CONFIG).map(([v, c]) => (
-            <button
-              key={v}
-              onClick={() => onChange(parseInt(v, 10))}
-              className={`w-full text-right px-4 py-2.5 text-xs font-bold transition-colors hover:bg-slate-50 ${value === parseInt(v) ? c.text : 'text-slate-600'}`}
-            >
-              {c.label}
-            </button>
-          ))}
+        <div className="absolute z-[100] mt-1.5 w-full bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-0.5">
+          {Object.entries(STATUS_CONFIG).map(([v, c]) => {
+            const isSelected = value === parseInt(v);
+            return (
+              <button
+                key={v}
+                onClick={() => onChange(parseInt(v, 10))}
+                className={`w-full text-right px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
+                  isSelected 
+                    ? `${c.bg} ${c.text} border ${c.border}` 
+                    : `bg-transparent ${c.text} ${c.hoverBg} border border-transparent`
+                }`}
+              >
+                {/* נקודה קטנה של צבע להוספת סטייל (אופציונלי אך מומלץ) */}
+                <div className={`w-1.5 h-1.5 rounded-full`} style={{ backgroundColor: c.color }}></div>
+                {c.label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -314,8 +323,16 @@ const App = () => {
     setShowOnlyOverdueTasks(false);
     setSearch('');
     setBudgetSearch('');
+    setFilterDept('הכל');       // מאפס את בחירת המחלקה בתכניות עבודה
+    setBudgetFilterDept('הכל'); // מאפס את בחירת המחלקה בתקציב
+    setBudgetTypeFilter('הכל'); // על הדרך, מאפס גם את סוג התקציב (הכנסה/הוצאה)
   }, [mainTab, viewMode]);
-
+  // חסימת תצוגת "שנתי" במסך עדכון המשימות (טבלה) - מעביר אוטומטית לרבעון 1
+  useEffect(() => {
+    if (mainTab === 'workplan' && viewMode === 'table' && workplanQuarter === 0) {
+      setWorkplanQuarter(1);
+    }
+  }, [mainTab, viewMode, workplanQuarter]);
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -1682,7 +1699,10 @@ const loadData = async () => {
                 
                 {/* Quarter Segmented Control */}
                 <div className="flex bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/50 w-full max-w-2xl mx-auto mb-6">
-                   <button onClick={() => setWorkplanQuarter(0)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === 0 ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>שנתי</button>
+                   {/* כפתור "שנתי" יופיע רק בתמונת המצב, ולא בטבלת העדכונים */}
+                   {viewMode === 'dashboard' && (
+                     <button onClick={() => setWorkplanQuarter(0)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === 0 ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>שנתי</button>
+                   )}
                    {[1, 2, 3, 4].map(q => (
                       <button key={q} onClick={() => setWorkplanQuarter(q)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === q ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>רבעון {q}</button>
                    ))}
