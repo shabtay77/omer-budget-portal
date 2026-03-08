@@ -37,7 +37,12 @@ import {
   UserCog,
   Download,
   ChevronLeft,
-  Filter
+  ChevronDown,
+  Filter,
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Target
 } from 'lucide-react';
 
 const SHEETS_CSV_URL =
@@ -59,13 +64,13 @@ const ICONS = {
 };
 
 const STATUS_CONFIG = {
-  1: { label: "בוצע", color: "#10b981", bg: "bg-emerald-100", text: "text-emerald-700" },
-  2: { label: "עיכוב", color: "#f59e0b", bg: "bg-amber-100", text: "text-amber-700" },
-  3: { label: "עצירת המשימה", color: "#ef4444", bg: "bg-red-100", text: "text-red-700" },
-  4: { label: "לא הגיע הזמן", color: "#94a3b8", bg: "bg-slate-200", text: "text-slate-600" }
+  1: { label: "בוצע", color: "#10b981", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200" },
+  2: { label: "עיכוב", color: "#f59e0b", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200" },
+  3: { label: "עצירה", color: "#ef4444", bg: "bg-red-50", text: "text-red-700", border: "border-red-200" },
+  4: { label: "ממתין", color: "#94a3b8", bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200" }
 };
 
-const PIE_COLORS = ['#0f766e', '#0284c7', '#7c3aed', '#f59e0b', '#ef4444', '#64748b', '#22c55e'];
+const PIE_COLORS = ['#0d9488', '#0284c7', '#6366f1', '#ea580c', '#e11d48', '#475569', '#16a34a'];
 
 const formatDate = (val) => {
   if (!val) return "-";
@@ -102,14 +107,18 @@ const formatILS = (val) => {
   return (val || 0) < 0 ? `-${formatted}` : formatted;
 };
 
-const cleanStr = (s) => String(s || "").trim();
+const cleanStr = (s) => {
+  if (s === null || s === undefined) return "";
+  return String(s)
+    .replace(/[״”״]/g, '"')   // מנרמל מרכאות עבריות/חכמות למרכאה רגילה
+    .replace(/''+/g, '"')     // אם מישהו הקליד פעמיים גרש בודד ברצף - הופך למרכאה אחת
+    .replace(/"{2,}/g, '"')   // מצמצם כל רצף של מרכאות כפולות ("" או """) למרכאה אחת בלבד
+    .trim();
+};
 
 const normalizeKey = (s) =>
-  String(s || "")
-    .trim()
-    .replace(/״/g, '"')
-    .replace(/׳/g, "'")
-    .replace(/["'`]/g, '')
+  cleanStr(s)                 // משתמש בפונקציית הניקוי החדשה כבסיס
+    .replace(/["'`]/g, '')    // מעיף מרכאות לחלוטין כדי שההשוואה הלוגית (מאחורי הקלעים) תעבוד תמיד
     .replace(/-/g, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase();
@@ -187,23 +196,24 @@ const downloadCsv = (rows, filename) => {
 
 function StatusDropdown({ value, onChange, open, setOpen }) {
   return (
-    <div className="relative">
+    <div className="relative w-full">
       <button
         onClick={() => setOpen(!open)}
-        className={`p-2.5 rounded-2xl text-[11px] font-black w-full shadow-sm border ${
-          value ? `${STATUS_CONFIG[value].bg} ${STATUS_CONFIG[value].text} border-transparent` : 'bg-slate-100 text-slate-400 border-slate-200'
+        className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-all border ${
+          value ? `${STATUS_CONFIG[value].bg} ${STATUS_CONFIG[value].text} ${STATUS_CONFIG[value].border}` : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
         }`}
       >
-        {value ? STATUS_CONFIG[value].label : '- בחר -'}
+        <span>{value ? STATUS_CONFIG[value].label : 'בחר סטטוס'}</span>
+        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-2 w-full bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="absolute z-[100] mt-1.5 w-full bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2">
           {Object.entries(STATUS_CONFIG).map(([v, c]) => (
             <button
               key={v}
               onClick={() => onChange(parseInt(v, 10))}
-              className={`w-full text-right px-3 py-3 text-[11px] font-black ${c.bg} ${c.text} border-b last:border-b-0`}
+              className={`w-full text-right px-4 py-2.5 text-xs font-bold transition-colors hover:bg-slate-50 ${value === parseInt(v) ? c.text : 'text-slate-600'}`}
             >
               {c.label}
             </button>
@@ -214,10 +224,21 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
   );
 }
 
-const StatCard = ({ title, value, accent = '' }) => (
-  <div className={`bg-white/90 backdrop-blur p-4 rounded-3xl border shadow-sm border-b-4 ${accent}`}>
-    <p className="text-[9px] font-bold text-slate-400 uppercase">{title}</p>
-    <p className="text-lg lg:text-xl font-black mt-1">{value}</p>
+const StatCard = ({ title, value, subtext, icon: Icon, isHighlight }) => (
+  <div className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-md relative overflow-hidden group ${isHighlight ? 'bg-emerald-900 border-emerald-800 text-white shadow-emerald-900/20' : 'bg-white border-slate-200 shadow-sm'}`}>
+    {Icon && (
+      <div className={`absolute -left-4 -top-4 opacity-[0.03] group-hover:scale-110 transition-transform duration-500 pointer-events-none`}>
+        <Icon size={120} />
+      </div>
+    )}
+    <div className="relative z-10">
+      <div className="flex justify-between items-start mb-2">
+        <p className={`text-[11px] font-bold tracking-wide uppercase ${isHighlight ? 'text-emerald-100' : 'text-slate-500'}`}>{title}</p>
+        {Icon && <div className={`p-1.5 rounded-lg ${isHighlight ? 'bg-emerald-800 text-emerald-200' : 'bg-slate-50 text-slate-400'}`}><Icon size={14} /></div>}
+      </div>
+      <p className={`text-2xl lg:text-3xl font-black ${isHighlight ? 'text-white' : 'text-slate-800'}`}>{value}</p>
+      {subtext && <p className={`text-xs mt-1 font-medium ${isHighlight ? 'text-emerald-200/80' : 'text-slate-400'}`}>{subtext}</p>}
+    </div>
   </div>
 );
 
@@ -287,6 +308,14 @@ const App = () => {
     return targets.includes(normalizeKey(value));
   };
 
+  // מנגנון איפוס סינונים בעת מעבר בין מסכים
+  useEffect(() => {
+    setShowOnlyBudgetAlerts(false);
+    setShowOnlyOverdueTasks(false);
+    setSearch('');
+    setBudgetSearch('');
+  }, [mainTab, viewMode]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -318,7 +347,7 @@ const App = () => {
       }
     } catch (err) {
       console.error(err);
-      setLoginError('שגיאה בהתחברות');
+      setLoginError('שגיאה בהתחברות לשרת');
     }
   };
 
@@ -377,9 +406,9 @@ const App = () => {
           target2: '',
           active: 'TRUE'
         });
-        alert('המשתמש נוסף');
+        alert('המשתמש נוסף בהצלחה');
       } else {
-        alert('שגיאה בהוספת משתמש');
+        alert(`שגיאה בהוספת משתמש: ${data.error || 'שגיאה כללית'}`);
       }
     } catch (err) {
       console.error(err);
@@ -407,9 +436,9 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        alert('המשתמש עודכן');
+        alert('המשתמש עודכן בהצלחה');
       } else {
-        alert('שגיאה בעדכון משתמש');
+        alert(`שגיאה בעדכון משתמש: ${data.error || 'שגיאה כללית'}`);
       }
     } catch (err) {
       console.error(err);
@@ -431,9 +460,9 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        alert('המשתמש הושבת');
+        alert('המשתמש הושבת בהצלחה');
       } else {
-        alert('שגיאה בהשבתת משתמש');
+        alert(`שגיאה בהשבתת משתמש: ${data.error || 'שגיאה כללית'}`);
       }
     } catch (err) {
       console.error(err);
@@ -441,7 +470,7 @@ const App = () => {
     }
   };
 
-  const loadData = async () => {
+const loadData = async () => {
     setLoading(true);
 
     try {
@@ -457,12 +486,23 @@ const App = () => {
         gasRes.json()
       ]);
 
-      setStaticData(bJson || []);
+      // כאן הקסם: מנקים את כל הנתונים מיד כשהם נכנסים!
+      setStaticData((bJson || []).map(b => ({
+        ...b,
+        wing: cleanStr(b.wing),
+        dept: cleanStr(b.dept),
+        name: cleanStr(b.name),
+        type: cleanStr(b.type)
+      })));
+
       setWorkPlans(
         (wJson || []).map((t) => {
           const live = liveData?.[String(t.id)] || {};
           return {
             ...t,
+            wing: cleanStr(t.wing),
+            dept: cleanStr(t.dept),
+            task: cleanStr(t.task),
             q1: live.q1 ?? t.q1,
             q2: live.q2 ?? t.q2,
             q3: live.q3 ?? t.q3,
@@ -520,6 +560,13 @@ const App = () => {
     const fromWorkplan = workPlans.map((r) => cleanStr(r.dept));
     return Array.from(new Set([...fromBudget, ...fromWorkplan].filter(Boolean))).sort();
   }, [staticData, workPlans]);
+
+  const wingDeptsList = useMemo(() => {
+    if (currentUser?.role !== 'WING') return [];
+    const wDepts = workPlans.filter(t => matchesUserTargets(t.wing, currentUser)).map(t => cleanStr(t.dept));
+    const bDepts = staticData.filter(b => matchesUserTargets(b.wing, currentUser)).map(b => cleanStr(b.dept));
+    return Array.from(new Set([...wDepts, ...bDepts].filter(Boolean))).sort();
+  }, [workPlans, staticData, currentUser]);
 
   const userTargetOptions = (role) => {
     if (role === 'WING') return wingsOptions;
@@ -778,10 +825,18 @@ const App = () => {
 
   const workStats = useMemo(() => {
     const total = filteredWorkData.length || 0;
-    const s1 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 1).length;
-    const s2 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 2).length;
-    const s3 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 3).length;
-    const s4 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 4).length;
+    const s1 = filteredWorkData.filter(
+      (t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 1
+    ).length;
+    const s2 = filteredWorkData.filter(
+      (t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 2
+    ).length;
+    const s3 = filteredWorkData.filter(
+      (t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 3
+    ).length;
+    const s4 = filteredWorkData.filter(
+      (t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 4
+    ).length;
     const m = total - (s1 + s2 + s3 + s4);
 
     return {
@@ -798,6 +853,20 @@ const App = () => {
     };
   }, [filteredWorkData, workplanQuarter]);
 
+  const orphanedDataAlert = useMemo(() => {
+    if (currentUser?.user !== 'aharony') return null;
+
+    const orphanedBudgets = staticData.filter(b => !cleanStr(b.wing) || !cleanStr(b.dept));
+    const orphanedWorks = workPlans.filter(w => !cleanStr(w.wing) || !cleanStr(w.dept));
+
+    if (orphanedBudgets.length === 0 && orphanedWorks.length === 0) return null;
+
+    return {
+      budgets: orphanedBudgets.length,
+      works: orphanedWorks.length
+    };
+  }, [staticData, workPlans, currentUser]);
+
   const updateTaskLocal = (taskId, field, value) => {
     setWorkPlans((prev) => prev.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)));
 
@@ -813,40 +882,29 @@ const App = () => {
   };
 
   const saveChanges = async () => {
+    if (pendingChanges.length === 0) return;
     setIsSaving(true);
 
     try {
-      for (const change of pendingChanges) {
-        const res = await fetch(GAS_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(change)
-        });
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'batchUpdate',
+          changes: pendingChanges
+        })
+      });
 
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw new Error(`HTTP ${res.status} ${text}`);
-        }
-
-        const text = (await res.text()).trim();
-
-        if (text && text !== 'Success') {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed?.success === false) {
-              throw new Error(parsed.error || 'שגיאה בסנכרון');
-            }
-          } catch {
-            if (text !== 'Success') {
-              throw new Error(text);
-            }
-          }
-        }
+      await ensureOk(res, 'Batch update');
+      const data = await res.json();
+      
+      if (data.success) {
+        alert("העדכונים נשמרו בהצלחה!");
+        setPendingChanges([]);
+        await loadData();
+      } else {
+        throw new Error(data.error || 'שגיאה בעדכון');
       }
-
-      alert("העדכונים נשמרו בהצלחה!");
-      setPendingChanges([]);
-      await loadData();
     } catch (e) {
       console.error("saveChanges error:", e);
       alert(`בעיה בסנכרון: ${e.message || 'שגיאה לא ידועה'}`);
@@ -960,40 +1018,50 @@ const App = () => {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-emerald-50 flex items-center justify-center p-6 text-right" dir="rtl">
-        <div className="bg-white/95 backdrop-blur p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md border border-slate-200">
-          <div className="mb-8">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-800 text-white flex items-center justify-center mb-4 shadow-lg">
-              <Building2 size={26} />
+      <div className="min-h-screen bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-slate-100 via-slate-50 to-slate-200 flex items-center justify-center p-4 text-right" dir="rtl">
+        <div className="bg-white/80 backdrop-blur-xl p-8 lg:p-12 rounded-[2rem] shadow-2xl shadow-slate-200/50 w-full max-w-md border border-white/50 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 to-teal-600"></div>
+          {loading && (
+             <div className="absolute inset-0 bg-white/90 z-50 flex flex-col items-center justify-center backdrop-blur-sm rounded-[2rem]">
+                <Loader2 className="animate-spin text-emerald-600 mb-3" size={40} strokeWidth={2.5} />
+                <span className="font-bold text-slate-600 text-sm tracking-wide">טוען נתונים...</span>
+             </div>
+          )}
+          <div className="mb-10 text-center flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-900 text-white flex items-center justify-center mb-5 shadow-xl shadow-emerald-900/20">
+              <Building2 size={32} strokeWidth={2} />
             </div>
-            <h1 className="text-3xl font-black text-slate-800 text-right">פורטל מועצת עומר</h1>
-            <p className="text-slate-400 font-bold text-sm mt-2">ניהול תקציב, תכניות עבודה ומשתמשים</p>
+            <h1 className="text-3xl font-black text-slate-800 tracking-tight">פורטל מועצת עומר</h1>
+            <p className="text-slate-500 font-medium text-sm mt-2">ניהול תקציב, תכניות עבודה ובקרה</p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="text"
-              placeholder="שם משתמש"
-              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none font-bold text-right focus:ring-2 focus:ring-emerald-200"
-              value={uInput}
-              onChange={(e) => setUInput(e.target.value)}
-            />
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <input
+                type="text"
+                placeholder="שם משתמש"
+                className="w-full p-4 rounded-xl bg-slate-50/50 border border-slate-200 outline-none font-bold text-right transition-all focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/30 placeholder:text-slate-400 placeholder:font-medium"
+                value={uInput}
+                onChange={(e) => setUInput(e.target.value)}
+              />
+            </div>
+            <div>
+              <input
+                type="password"
+                placeholder="סיסמה"
+                className="w-full p-4 rounded-xl bg-slate-50/50 border border-slate-200 outline-none font-bold text-right transition-all focus:bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500/30 placeholder:text-slate-400 placeholder:font-medium"
+                value={pInput}
+                onChange={(e) => setPInput(e.target.value)}
+              />
+            </div>
 
-            <input
-              type="password"
-              placeholder="סיסמה"
-              className="w-full p-4 rounded-2xl bg-slate-50 border border-slate-200 outline-none font-bold text-right focus:ring-2 focus:ring-emerald-200"
-              value={pInput}
-              onChange={(e) => setPInput(e.target.value)}
-            />
-
-            {loginError && <div className="text-red-600 text-sm font-bold">{loginError}</div>}
+            {loginError && <div className="text-red-500 text-sm font-bold bg-red-50 p-3 rounded-xl border border-red-100 text-center animate-in fade-in zoom-in">{loginError}</div>}
 
             <button
               type="submit"
-              className="w-full bg-emerald-800 hover:bg-emerald-900 text-white p-4 rounded-2xl font-black text-lg shadow-lg transition-all"
+              className="w-full bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-800 hover:to-teal-900 text-white p-4 rounded-xl font-black text-lg shadow-lg shadow-emerald-900/20 transition-all hover:scale-[1.02] active:scale-[0.98] flex justify-center items-center gap-2 mt-2"
             >
-              כניסה
+              כניסה למערכת
             </button>
           </form>
         </div>
@@ -1002,36 +1070,36 @@ const App = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
-      {activePopup === 'workplan' && (
-        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 text-center">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full overflow-hidden border-t-8 border-red-500">
-            <div className="p-8">
-              <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                <AlertTriangle size={40} className="text-red-500" />
+    <div className="min-h-screen bg-slate-50/50 text-slate-800 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
+      
+      {/* Modals */}
+      {(activePopup === 'workplan' || activePopup === 'budget') && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-5 text-red-500">
+                <AlertTriangle size={32} strokeWidth={2.5} />
               </div>
-
-              <h3 className="text-2xl font-black text-slate-800 mb-2">תשומת לב מנהל</h3>
-              <p className="text-slate-600 font-bold mb-8">
-                נמצאו <span className="text-red-600 underline">{popupCount}</span> משימות שעבר תאריך היעד שלהן ועדיין לא בוצעו.
+              <h3 className="text-xl font-black mb-2">{activePopup === 'workplan' ? 'משימות בפיגור' : 'סעיפים בחריגה'}</h3>
+              <p className="text-slate-500 text-sm mb-8 leading-relaxed">
+                נמצאו <span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md mx-1">{popupCount}</span> 
+                {activePopup === 'workplan' ? ' משימות שעבר תאריך היעד שלהן.' : ' סעיפים החורגים מתקציב 2026.'}
               </p>
-
-              <div className="flex flex-col gap-3">
+              <div className="space-y-3">
                 <button
                   onClick={() => {
-                    setShowOnlyOverdueTasks(true);
+                    if(activePopup === 'workplan') setShowOnlyOverdueTasks(true); else setShowOnlyBudgetAlerts(true);
                     setActivePopup(null);
                   }}
-                  className="w-full py-4 bg-red-600 text-white font-black rounded-2xl shadow-lg hover:bg-red-700 transition-all"
+                  className="w-full py-3.5 bg-slate-900 text-white font-bold rounded-xl shadow-md hover:bg-slate-800 transition-colors"
                 >
-                  הצג רק משימות בפיגור
+                  הצג חריגות בלבד
                 </button>
-
                 <button
                   onClick={() => setActivePopup(null)}
-                  className="w-full py-3 bg-slate-100 text-slate-500 font-bold rounded-2xl hover:bg-slate-200"
+                  className="w-full py-3.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors"
                 >
-                  סגור והמשך כרגיל
+                  המשך כרגיל
                 </button>
               </div>
             </div>
@@ -1039,1197 +1107,768 @@ const App = () => {
         </div>
       )}
 
-      {activePopup === 'budget' && (
-        <div className="fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 text-center">
-          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-sm w-full overflow-hidden border-t-8 border-red-500">
-            <div className="p-8">
-              <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
-                <AlertTriangle size={40} className="text-red-500" />
-              </div>
-
-              <h3 className="text-2xl font-black text-slate-800 mb-2">סעיפים בחריגה</h3>
-              <p className="text-slate-600 font-bold mb-8">
-                נמצאו <span className="text-red-600 underline">{popupCount}</span> סעיפים שנצבעו באדום לפי תקציב 2026 פחות ביצוע 2026.
-              </p>
-
-              <div className="flex flex-col gap-3">
-                <button
-                  onClick={() => {
-                    setShowOnlyBudgetAlerts(true);
-                    setActivePopup(null);
-                  }}
-                  className="w-full py-4 bg-red-600 text-white font-black rounded-2xl shadow-lg hover:bg-red-700 transition-all"
-                >
-                  הצג רק סעיפים בחריגה
-                </button>
-
-                <button
-                  onClick={() => setActivePopup(null)}
-                  className="w-full py-3 bg-slate-100 text-slate-500 font-bold rounded-2xl hover:bg-slate-200"
-                >
-                  סגור והמשך כרגיל
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Floating Save Button */}
       {pendingChanges.length > 0 && mainTab === 'workplan' && (
-        <button
-          onClick={saveChanges}
-          disabled={isSaving}
-          className="fixed bottom-6 left-6 z-[1000] bg-blue-600 text-white px-6 py-3 rounded-full font-black shadow-2xl flex items-center gap-3 border-4 border-white"
-        >
-          {isSaving ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-          שמור {pendingChanges.length} עדכונים
-        </button>
+        <div className="fixed bottom-6 left-0 right-0 z-[100] flex justify-center pointer-events-none">
+          <button
+            onClick={saveChanges}
+            disabled={isSaving}
+            className="pointer-events-auto bg-slate-900 text-white px-6 py-3.5 rounded-full font-bold shadow-xl flex items-center gap-3 border border-slate-700 hover:scale-105 active:scale-95 transition-all"
+          >
+            {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+            שמור {pendingChanges.length} שינויים
+          </button>
+        </div>
       )}
 
-      <header className="bg-white/90 backdrop-blur border-b border-slate-200 sticky top-0 z-[500] p-4 flex justify-between items-center px-4 lg:px-8 shadow-sm gap-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsMenuOpen(true)}
-            className="lg:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
-          >
-            <Menu size={24} />
+      {/* Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 py-3 flex justify-between items-center shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
+        <div className="flex items-center gap-4">
+          <button onClick={() => setIsMenuOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+            <Menu size={22} />
           </button>
 
-          <div className="flex bg-slate-100 p-1 rounded-2xl shadow-inner">
+          {/* Segmented Control for Main Tabs */}
+          <div className="hidden sm:flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
             <button
-              onClick={() => {
-                setMainTab('budget');
-                setViewMode('dashboard');
-              }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'
-              }`}
-            >
-              תקציב
-            </button>
-
+              onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }}
+              className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >תקציב</button>
             <button
-              onClick={() => {
-                setMainTab('workplan');
-                setViewMode('dashboard');
-              }}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'
-              }`}
-            >
-              תכניות עבודה
-            </button>
-
+              onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }}
+              className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >תכניות עבודה</button>
             {isAharony && (
               <button
-                onClick={async () => {
-                  setMainTab('users');
-                  await loadUsers();
-                }}
-                className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
-                  mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-400'
-                }`}
-              >
-                ניהול משתמשים
-              </button>
+                onClick={async () => { setMainTab('users'); await loadUsers(); }}
+                className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >משתמשים</button>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <button
             onClick={exportCurrentView}
-            className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-2 rounded-2xl text-slate-700 font-black text-xs shadow-sm hover:bg-slate-50"
+            className="hidden sm:flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs shadow-sm hover:bg-slate-50 hover:text-emerald-700 transition-colors"
           >
-            <Download size={16} />
-            הורדה לאקסל
+            <Download size={14} /> ייצוא
           </button>
-
-          <div className="text-left font-black text-slate-600 text-[10px] whitespace-nowrap">
-            מועצת עומר | {currentUser.user}
+          <div className="flex flex-col items-end">
+            <span className="text-xs font-black text-slate-800">{currentUser.user}</span>
+            <span className="text-[10px] font-medium text-slate-400 tracking-wide">מועצת עומר</span>
+          </div>
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-100 to-teal-200 text-emerald-800 flex items-center justify-center font-black border border-emerald-200 shadow-sm">
+            {currentUser.user.charAt(0).toUpperCase()}
           </div>
         </div>
       </header>
 
-      <div className="flex flex-1">
-        {isMenuOpen && (
-          <div
-            className="fixed inset-0 bg-black/40 z-[550] lg:hidden backdrop-blur-sm"
-            onClick={() => setIsMenuOpen(false)}
-          />
-        )}
+      {/* Main Layout */}
+      <div className="flex flex-1 overflow-hidden">
+        
+        {/* Mobile Sidebar Overlay */}
+        {isMenuOpen && <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-[550] lg:hidden" onClick={() => setIsMenuOpen(false)} />}
 
-        <aside
-          className={`fixed lg:static top-0 right-0 h-full w-72 bg-white z-[600] lg:z-auto transition-transform duration-300 transform border-l border-slate-200 shadow-2xl lg:shadow-sm overflow-y-auto ${
-            isMenuOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
-          }`}
-        >
-          <div className="lg:hidden p-4 border-b flex justify-between items-center bg-slate-50">
-            <span className="font-black text-slate-800">תפריט ניווט</span>
-            <button onClick={() => setIsMenuOpen(false)} className="p-2 text-slate-500">
-              <X />
-            </button>
+        {/* Sidebar */}
+        <aside className={`fixed lg:static top-0 right-0 h-[100dvh] lg:h-full w-72 bg-white z-[600] lg:z-10 transition-transform duration-300 transform border-l border-slate-100 flex flex-col ${isMenuOpen ? 'translate-x-0 shadow-2xl' : 'translate-x-full lg:translate-x-0'}`}>
+          <div className="p-5 lg:hidden flex justify-between items-center border-b border-slate-100 shrink-0">
+            <span className="font-black text-lg text-slate-800">תפריט ניווט</span>
+            <button onClick={() => setIsMenuOpen(false)} className="p-2 text-slate-400 bg-slate-50 rounded-full"><X size={18}/></button>
+          </div>
+
+          {/* Mobile Main Tabs (Visible only on mobile inside sidebar) */}
+          <div className="p-4 border-b border-slate-100 sm:hidden space-y-2 shrink-0">
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">מודולים</p>
+             {['budget', 'workplan', ...(isAharony ? ['users'] : [])].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => { setMainTab(tab); if(tab!=='users') setViewMode('dashboard'); else loadUsers(); setIsMenuOpen(false); }}
+                  className={`w-full text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  {tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : 'ניהול משתמשים'}
+                </button>
+             ))}
           </div>
 
           {mainTab !== 'users' && (
-            <>
-              <div className="p-6 space-y-2 border-b border-slate-100 text-right">
+            <div className="flex-1 overflow-y-auto pb-24">
+              <div className="p-4 space-y-1.5 border-b border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2">תצוגות</p>
                 <button
-                  onClick={() => {
-                    setViewMode('dashboard');
-                    setIsMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl ${
-                    viewMode === 'dashboard'
-                      ? 'bg-emerald-800 text-white shadow-lg'
-                      : 'text-slate-600 hover:bg-emerald-50'
-                  }`}
+                  onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
-                  <LayoutDashboard size={20} /> <span className="font-bold">תמונת מצב</span>
+                  <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
                 </button>
-
                 <button
-                  onClick={() => {
-                    setViewMode('table');
-                    if (mainTab === 'workplan' && workplanQuarter === 0) setWorkplanQuarter(1);
-                    setIsMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl ${
-                    viewMode === 'table'
-                      ? 'bg-emerald-800 text-white shadow-lg'
-                      : 'text-slate-600 hover:bg-emerald-50'
-                  }`}
+                  onClick={() => { setViewMode('table'); if (mainTab === 'workplan' && workplanQuarter === 0) setWorkplanQuarter(1); setIsMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}
                 >
-                  <TableProperties size={20} /> <span className="font-bold">{mainTab === 'budget' ? 'פירוט' : 'פירוט ועדכון'}</span>
+                  <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
                 </button>
-
                 {mainTab === 'budget' && (
                   <button
-                    onClick={() => {
-                      setViewMode('control');
-                      setIsMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-start gap-3 p-4 rounded-2xl ${
-                      viewMode === 'control'
-                        ? 'bg-red-700 text-white shadow-lg'
-                        : 'text-red-600 font-bold'
-                    }`}
+                    onClick={() => { setViewMode('control'); setIsMenuOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-red-50 text-red-700 border border-red-100' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600'}`}
                   >
-                    <ShieldAlert size={20} /> <span className="font-bold">בקרה</span>
+                    <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} /> בקרת חריגות
                   </button>
                 )}
               </div>
 
-              <div className="p-6 space-y-1">
-                <p className="text-[10px] font-black text-slate-400 uppercase mb-4 tracking-widest">אגפים</p>
+              <div className="p-4 space-y-1">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
+                   {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
+                </p>
 
-                {currentUser.role === 'ADMIN' ? (
+                {currentUser.role === 'ADMIN' && (
                   <>
                     <button
-                      onClick={() => {
-                        setActiveWingId(null);
-                        setFilterDept('הכל');
-                        setBudgetFilterDept('הכל');
-                        setIsMenuOpen(false);
-                      }}
-                      className={`w-full text-right p-3 rounded-2xl mb-1 text-sm font-bold ${
-                        !activeWingId
-                          ? 'bg-slate-900 text-white shadow-md'
-                          : 'text-slate-500 hover:bg-slate-100'
-                      }`}
-                    >
-                      כלל המועצה
-                    </button>
-
-                    {wingsOptions.map((name) => (
-                      <button
-                        key={name}
-                        onClick={() => {
-                          setActiveWingId(name);
-                          setFilterDept('הכל');
-                          setBudgetFilterDept('הכל');
-                          setIsMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-start gap-3 p-3 rounded-2xl text-sm ${
-                          sameKey(activeWingId, name)
-                            ? 'bg-slate-900 text-white font-bold shadow-md'
-                            : 'text-slate-500 hover:bg-slate-50'
-                        }`}
-                      >
-                        {React.createElement(ICONS[name] || Building2, { size: 16 })} <span>{name}</span>
-                      </button>
-                    ))}
+                      onClick={() => { setActiveWingId(null); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }}
+                      className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${!activeWingId ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >כלל המועצה</button>
+                    {wingsOptions.map((name) => {
+                      const Icon = ICONS[name] || Building2;
+                      return (
+                        <button
+                          key={name}
+                          onClick={() => { setActiveWingId(name); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${sameKey(activeWingId, name) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          <Icon size={14} className={sameKey(activeWingId, name) ? 'text-emerald-600' : 'text-slate-400'} /> <span className="truncate">{name}</span>
+                        </button>
+                      );
+                    })}
                   </>
-                ) : (
-                  <div className="bg-emerald-50 text-emerald-800 p-4 rounded-2xl font-black flex items-center gap-3 border border-emerald-100">
-                    {React.createElement(ICONS[activeWingId] || Building2, { size: 20 })} {scopeTitle}
+                )}
+
+                {currentUser.role === 'WING' && (
+                  <>
+                    <button
+                      onClick={() => { setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }}
+                      className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${(filterDept === 'הכל' && budgetFilterDept === 'הכל') ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                    >{currentUser.target1} (כל המחלקות)</button>
+                    
+                    {wingDeptsList.map((name) => {
+                      const isActive = filterDept === name || budgetFilterDept === name;
+                      return (
+                        <button
+                          key={name}
+                          onClick={() => { setFilterDept(name); setBudgetFilterDept(name); setIsMenuOpen(false); }}
+                          className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}
+                        >
+                          <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                          <span className="truncate">{name}</span>
+                        </button>
+                      );
+                    })}
+                  </>
+                )}
+
+                {currentUser.role === 'DEPT' && (
+                  <div className="bg-emerald-50 text-emerald-800 px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-3 border border-emerald-100">
+                    <Building2 size={16} className="text-emerald-600" /> <span className="truncate">{currentUser.target1}</span>
                   </div>
                 )}
               </div>
-            </>
+            </div>
           )}
         </aside>
 
-        <main className="flex-1 p-4 lg:p-8 text-right overflow-x-hidden">
-          <div className="mb-8 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl lg:text-4xl font-black text-slate-800 tracking-tight">
-                {mainTab === 'users' ? 'ניהול משתמשים' : scopeTitle}
-              </h2>
-              <p className="text-slate-400 font-bold text-sm mt-2">
-                {mainTab === 'budget' && 'בקרה, ביצוע וניתוח תקציבי'}
-                {mainTab === 'workplan' && 'מעקב ביצוע ועדכון משימות'}
-                {mainTab === 'users' && 'הרשאות משתמשים וניהול גישה'}
-              </p>
-            </div>
-          </div>
-
-          {mainTab === 'users' ? (
-            <div className="space-y-6">
-              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-6">
-                <h3 className="text-xl font-black text-slate-800 mb-4">הוספת משתמש</h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <input
-                    type="text"
-                    placeholder="שם משתמש"
-                    value={userForm.username}
-                    onChange={(e) => setUserForm((prev) => ({ ...prev, username: e.target.value }))}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right"
-                  />
-
-                  <input
-                    type="text"
-                    placeholder="סיסמה"
-                    value={userForm.password}
-                    onChange={(e) => setUserForm((prev) => ({ ...prev, password: e.target.value }))}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right"
-                  />
-
-                  <select
-                    value={userForm.role}
-                    onChange={(e) => setUserForm((prev) => ({
-                      ...prev,
-                      role: e.target.value,
-                      target1: '',
-                      target2: ''
-                    }))}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right"
-                  >
-                    <option value="ADMIN">ADMIN</option>
-                    <option value="WING">WING</option>
-                    <option value="DEPT">DEPT</option>
-                  </select>
-
-                  <select
-                    value={userForm.target1}
-                    onChange={(e) => setUserForm((prev) => ({ ...prev, target1: e.target.value }))}
-                    disabled={userForm.role === 'ADMIN'}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right disabled:opacity-50"
-                  >
-                    <option value="">target1</option>
-                    {userTargetOptions(userForm.role).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={userForm.target2}
-                    onChange={(e) => setUserForm((prev) => ({ ...prev, target2: e.target.value }))}
-                    disabled={userForm.role === 'ADMIN'}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right disabled:opacity-50"
-                  >
-                    <option value="">target2</option>
-                    {userTargetOptions(userForm.role)
-                      .filter((opt) => opt !== userForm.target1)
-                      .map((opt) => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                  </select>
-
-                  <select
-                    value={userForm.active}
-                    onChange={(e) => setUserForm((prev) => ({ ...prev, active: e.target.value }))}
-                    className="p-3 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-right"
-                  >
-                    <option value="TRUE">פעיל</option>
-                    <option value="FALSE">לא פעיל</option>
-                  </select>
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-8 scroll-smooth relative">
+          
+          {/* מנגנון התראת שגיאות נתונים ל-aharony */}
+          {orphanedDataAlert && (
+            <div className="mb-6 bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-100 p-2 rounded-full">
+                  <ShieldAlert className="text-red-600" size={20} />
                 </div>
-
-                <div className="mt-4">
-                  <button
-                    onClick={addUser}
-                    className="bg-emerald-700 text-white px-6 py-3 rounded-2xl font-black shadow-sm hover:bg-emerald-800"
-                  >
-                    הוסף משתמש
-                  </button>
+                <div>
+                  <h4 className="font-black text-red-800 text-sm">התראת מנהל: נתונים ללא שיוך מזהה (יתומים)</h4>
+                  <p className="text-xs text-red-600 font-bold mt-1">
+                    נמצאו {orphanedDataAlert.budgets} סעיפי תקציב ו-{orphanedDataAlert.works} משימות שחסר להם שיוך תקין לאגף או מחלקה בקובץ המקור.
+                  </p>
                 </div>
               </div>
-
-              {usersLoading ? (
-                <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-10 flex items-center justify-center gap-3 text-slate-500 font-bold">
-                  <Loader2 className="animate-spin" />
-                  טוען משתמשים...
-                </div>
-              ) : (
-                <>
-                  <div className="hidden lg:block bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-x-auto">
-                    <table className="w-full min-w-[1100px] text-right">
-                      <thead>
-                        <tr className="bg-slate-50 text-[11px] text-slate-500 font-black">
-                          <th className="p-4">id</th>
-                          <th className="p-4">username</th>
-                          <th className="p-4">password</th>
-                          <th className="p-4">role</th>
-                          <th className="p-4">target1</th>
-                          <th className="p-4">target2</th>
-                          <th className="p-4">active</th>
-                          <th className="p-4">פעולות</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {usersList.map((u, idx) => (
-                          <tr key={u.id || idx}>
-                            <td className="p-3 font-bold">{u.id}</td>
-                            <td className="p-3">
-                              <input
-                                value={u.username}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, username: val } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <input
-                                value={u.password}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, password: val } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={u.role}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, role: val, target1: '', target2: '' } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right"
-                              >
-                                <option value="ADMIN">ADMIN</option>
-                                <option value="WING">WING</option>
-                                <option value="DEPT">DEPT</option>
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={u.target1 || ''}
-                                disabled={u.role === 'ADMIN'}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, target1: val } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right disabled:opacity-50"
-                              >
-                                <option value="">target1</option>
-                                {userTargetOptions(u.role).map((opt) => (
-                                  <option key={opt} value={opt}>{opt}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={u.target2 || ''}
-                                disabled={u.role === 'ADMIN'}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, target2: val } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right disabled:opacity-50"
-                              >
-                                <option value="">target2</option>
-                                {userTargetOptions(u.role)
-                                  .filter((opt) => opt !== u.target1)
-                                  .map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={String(u.active || 'TRUE').toUpperCase()}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, active: val } : x));
-                                }}
-                                className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl text-right"
-                              >
-                                <option value="TRUE">TRUE</option>
-                                <option value="FALSE">FALSE</option>
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => updateUserRow(u)}
-                                  className="bg-blue-600 text-white px-4 py-2 rounded-xl font-black text-xs"
-                                >
-                                  שמור
-                                </button>
-                                <button
-                                  onClick={() => deactivateUserRow(u.id)}
-                                  className="bg-red-600 text-white px-4 py-2 rounded-xl font-black text-xs"
-                                >
-                                  השבת
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="lg:hidden space-y-3">
-                    {usersList.map((u) => (
-                      <div key={u.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4 space-y-3">
-                        <div className="text-xs font-black text-slate-400">#{u.id}</div>
-                        <input
-                          value={u.username}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, username: val } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right"
-                          placeholder="username"
-                        />
-                        <input
-                          value={u.password}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, password: val } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right"
-                          placeholder="password"
-                        />
-                        <select
-                          value={u.role}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, role: val, target1: '', target2: '' } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right"
-                        >
-                          <option value="ADMIN">ADMIN</option>
-                          <option value="WING">WING</option>
-                          <option value="DEPT">DEPT</option>
-                        </select>
-                        <select
-                          value={u.target1 || ''}
-                          disabled={u.role === 'ADMIN'}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, target1: val } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right disabled:opacity-50"
-                        >
-                          <option value="">target1</option>
-                          {userTargetOptions(u.role).map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={u.target2 || ''}
-                          disabled={u.role === 'ADMIN'}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, target2: val } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right disabled:opacity-50"
-                        >
-                          <option value="">target2</option>
-                          {userTargetOptions(u.role)
-                            .filter((opt) => opt !== u.target1)
-                            .map((opt) => (
-                              <option key={opt} value={opt}>{opt}</option>
-                            ))}
-                        </select>
-                        <select
-                          value={String(u.active || 'TRUE').toUpperCase()}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setUsersList((prev) => prev.map((x) => x.id === u.id ? { ...x, active: val } : x));
-                          }}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl text-right"
-                        >
-                          <option value="TRUE">TRUE</option>
-                          <option value="FALSE">FALSE</option>
-                        </select>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => updateUserRow(u)}
-                            className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-2xl font-black text-sm"
-                          >
-                            שמור
-                          </button>
-                          <button
-                            onClick={() => deactivateUserRow(u.id)}
-                            className="flex-1 bg-red-600 text-white px-4 py-3 rounded-2xl font-black text-sm"
-                          >
-                            השבת
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          ) : mainTab === 'budget' ? (
-            <div className="space-y-8">
-              {viewMode === 'dashboard' && (
-                <>
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-2">
-                    <StatCard title="ביצוע 24" value={formatILS(budgetStats.expA24)} accent="border-slate-400 text-slate-700" />
-                    <StatCard title="תקציב 25" value={formatILS(budgetStats.expB25)} accent="border-emerald-500 text-emerald-700" />
-                    <StatCard title="תקציב 26" value={formatILS(budgetStats.expB26)} accent="border-blue-600 text-blue-800" />
-                    <StatCard title="ביצוע+שריון" value={formatILS(budgetStats.expCommit26)} accent="border-orange-500 text-orange-700" />
-                    <StatCard title="ביצוע בפועל" value={formatILS(budgetStats.expExec26)} accent="border-slate-500 text-slate-900" />
-                  </div>
-
-                  {budgetMiniCards.length > 0 && (
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      {budgetMiniCards.map((card) => (
-                        <StatCard key={card.title} title={card.title} value={formatILS(card.value)} accent={card.accent} />
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 lg:p-8 min-h-[360px]">
-                      <h3 className="font-black text-slate-800 mb-6 border-r-8 border-emerald-500 pr-3">
-                        תקציב 2026 לפי מחלקה (הוצאות)
-                      </h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={budgetByDeptChart}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                          <XAxis dataKey="name" tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                          <YAxis hide />
-                          <Tooltip formatter={(v) => formatILS(v)} />
-                          <Bar dataKey="value" radius={[10, 10, 0, 0]} barSize={42}>
-                            {budgetByDeptChart.map((_, i) => (
-                              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-8">
-                      {budgetByTypePie.length > 0 ? (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 lg:p-8 min-h-[260px]">
-                          <h3 className="font-black text-slate-800 mb-6 border-r-8 border-blue-500 pr-3">
-                            חלוקת תקציב לפי הכנסה / הוצאה
-                          </h3>
-                          <ResponsiveContainer width="100%" height={180}>
-                            <PieChart>
-                              <Pie
-                                data={budgetByTypePie}
-                                dataKey="value"
-                                nameKey="name"
-                                innerRadius={45}
-                                outerRadius={75}
-                                paddingAngle={4}
-                              >
-                                {budgetByTypePie.map((_, i) => (
-                                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(v) => formatILS(v)} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                          <div className="flex flex-wrap gap-3 justify-center">
-                            {budgetByTypePie.map((item, i) => (
-                              <div key={item.name} className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                                {item.name} - {formatILS(item.value)}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 min-h-[260px] flex items-center justify-center text-slate-400 font-black">
-                          אין מספיק נתונים להצגת חלוקת הכנסות/הוצאות
-                        </div>
-                      )}
-
-                      {budgetExecutionPie.length > 0 ? (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 lg:p-8 min-h-[260px]">
-                          <h3 className="font-black text-slate-800 mb-6 border-r-8 border-amber-500 pr-3">
-                            ביצוע 2026 מול יתרה (הוצאות)
-                          </h3>
-                          <ResponsiveContainer width="100%" height={180}>
-                            <PieChart>
-                              <Pie
-                                data={budgetExecutionPie}
-                                dataKey="value"
-                                nameKey="name"
-                                innerRadius={45}
-                                outerRadius={75}
-                                paddingAngle={4}
-                              >
-                                {budgetExecutionPie.map((_, i) => (
-                                  <Cell key={i} fill={PIE_COLORS[(i + 2) % PIE_COLORS.length]} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(v) => formatILS(v)} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                          <div className="flex flex-wrap gap-3 justify-center">
-                            {budgetExecutionPie.map((item, i) => (
-                              <div key={item.name} className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[(i + 2) % PIE_COLORS.length] }} />
-                                {item.name} - {formatILS(item.value)}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 min-h-[260px] flex items-center justify-center text-slate-400 font-black">
-                          אין מספיק נתונים להצגת ביצוע מול יתרה
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {viewMode === 'table' && (
-                <div className="space-y-4">
-                  {showOnlyBudgetAlerts && (
-                    <div className="flex items-center justify-between bg-red-50 p-4 rounded-2xl border border-red-100 animate-pulse">
-                      <div className="flex items-center gap-3">
-                        <AlertTriangle className="text-red-500" />
-                        <span className="font-black text-red-800 text-sm">מציג סעיפים בחריגה בלבד</span>
-                      </div>
-
-                      <button
-                        onClick={() => setShowOnlyBudgetAlerts(false)}
-                        className="px-4 py-2 bg-white text-red-600 font-bold rounded-xl border border-red-200"
-                      >
-                        בטל סינון
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4 space-y-4">
-                    <div>
-                      <label className="text-[10px] font-black text-slate-400 pr-2 uppercase block mb-2">
-                        עמודות להצגה
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        {[
-                          { key: 'a2024', label: 'ביצוע 2024' },
-                          { key: 'b2025', label: 'תקציב 2025' },
-                          { key: 'b2026', label: 'תקציב 2026' },
-                          { key: 'a2026', label: 'ביצוע 2026' },
-                          { key: 'commitTotal2026', label: 'שריון+ביצוע 2026' }
-                        ].map((col) => (
-                          <button
-                            key={col.key}
-                            onClick={() => toggleBudgetColumn(col.key)}
-                            className={`px-4 py-2 rounded-2xl text-xs font-black border ${
-                              budgetVisibleColumns[col.key]
-                                ? 'bg-slate-900 text-white border-slate-900'
-                                : 'bg-slate-50 text-slate-500 border-slate-200'
-                            }`}
-                          >
-                            {col.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 pr-2 uppercase block">חיפוש סעיף</label>
-                        <input
-                          type="text"
-                          placeholder="חפש שם סעיף..."
-                          value={budgetSearch}
-                          onChange={(e) => setBudgetSearch(e.target.value)}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-right"
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 pr-2 uppercase block">מחלקה</label>
-                        <select
-                          value={budgetFilterDept}
-                          onChange={(e) => setBudgetFilterDept(e.target.value)}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-right"
-                        >
-                          <option value="הכל">כל המחלקות</option>
-                          {budgetDeptOptions.map((d) => (
-                            <option key={d} value={d}>{d}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 pr-2 uppercase block">סוג</label>
-                        <select
-                          value={budgetTypeFilter}
-                          onChange={(e) => setBudgetTypeFilter(e.target.value)}
-                          className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-right"
-                        >
-                          <option value="הכל">הכנסה והוצאה</option>
-                          <option value="הכנסה">הכנסה</option>
-                          <option value="הוצאה">הוצאה</option>
-                        </select>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-black text-slate-400 pr-2 uppercase block">סה"כ שורות</label>
-                        <div className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl font-black text-sm text-slate-700">
-                          {filteredBudgetData.length}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-x-auto">
-                    <table className="w-full text-right border-collapse min-w-[1100px]">
-                      <thead>
-                        <tr className="bg-slate-50 text-[10px] font-black border-b border-slate-200 uppercase text-slate-400">
-                          <th className="p-4">סעיף</th>
-                          <th className="p-4">תיאור</th>
-                          <th className="p-4 text-center">מחלקה</th>
-                          <th className="p-4 text-center">סוג</th>
-                          {visibleBudgetColumnDefs.map((col) => (
-                            <th key={col.key} className="p-4 text-left">{col.label}</th>
-                          ))}
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-100">
-                        {filteredBudgetData.map((row) => {
-                          const isAlert =
-                            (sameKey(row.type, 'הכנסה') && (row.b2026 - row.a2026) > 0) ||
-                            (sameKey(row.type, 'הוצאה') && (row.b2026 - row.a2026) < 0);
-
-                          return (
-                            <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${isAlert ? 'bg-red-50/60' : ''}`}>
-                              <td className="p-4 font-mono text-[10px] text-slate-400">#{row.id}</td>
-                              <td className="p-4 font-black text-xs text-slate-800">{row.name}</td>
-                              <td className="p-4 font-bold text-slate-700 text-[10px] text-center">{row.dept}</td>
-                              <td className="p-4 text-center">
-                                <span className={`px-3 py-1 rounded-full text-[10px] font-black ${sameKey(row.type, 'הכנסה') ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                                  {row.type}
-                                </span>
-                              </td>
-                              {visibleBudgetColumnDefs.map((col) => (
-                                <td key={col.key} className="p-4 text-left font-bold text-xs">
-                                  {formatILS(col.value(row))}
-                                </td>
-                              ))}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {viewMode === 'control' && (
-                <div className="space-y-4">
-                  {showOnlyBudgetAlerts && (
-                    <div className="flex items-center justify-between bg-red-50 p-4 rounded-2xl border border-red-100 animate-pulse">
-                      <div className="flex items-center gap-3">
-                        <AlertTriangle className="text-red-500" />
-                        <span className="font-black text-red-800 text-sm">מציג סעיפים בחריגה בלבד</span>
-                      </div>
-
-                      <button
-                        onClick={() => setShowOnlyBudgetAlerts(false)}
-                        className="px-4 py-2 bg-white text-red-600 font-bold rounded-xl border border-red-200"
-                      >
-                        בטל סינון
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => setControlCompareBy('a2026')}
-                        className={`px-4 py-2 rounded-2xl text-xs font-black border ${
-                          controlCompareBy === 'a2026'
-                            ? 'bg-red-700 text-white border-red-700'
-                            : 'bg-slate-50 text-slate-500 border-slate-200'
-                        }`}
-                      >
-                        בקרה מול ביצוע 2026
-                      </button>
-
-                      <button
-                        onClick={() => setControlCompareBy('commitTotal2026')}
-                        className={`px-4 py-2 rounded-2xl text-xs font-black border ${
-                          controlCompareBy === 'commitTotal2026'
-                            ? 'bg-red-700 text-white border-red-700'
-                            : 'bg-slate-50 text-slate-500 border-slate-200'
-                        }`}
-                      >
-                        בקרה מול ביצוע+שריון 2026
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-x-auto">
-                    <table className="w-full text-right border-collapse min-w-[1100px]">
-                      <thead>
-                        <tr className="bg-slate-50 text-[10px] font-black border-b border-slate-200 uppercase text-slate-400">
-                          <th className="p-4">סעיף</th>
-                          <th className="p-4">תיאור</th>
-                          <th className="p-4 text-center">מחלקה</th>
-                          <th className="p-4 text-center">סוג</th>
-                          <th className="p-4 text-left">תקציב 2026</th>
-                          <th className="p-4 text-left">{controlCompareBy === 'a2026' ? 'ביצוע 2026' : 'ביצוע+שריון 2026'}</th>
-                          <th className="p-4 text-left">יתרה</th>
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-100">
-                        {controlData.map((row) => (
-                          <tr key={row.id} className={`hover:bg-slate-50 transition-colors ${row.isRed ? 'bg-red-50/70' : ''}`}>
-                            <td className="p-4 font-mono text-[10px] text-slate-400">#{row.id}</td>
-                            <td className="p-4 font-black text-xs text-slate-800">{row.name}</td>
-                            <td className="p-4 font-bold text-slate-700 text-[10px] text-center">{row.dept}</td>
-                            <td className="p-4 text-center">
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-black ${sameKey(row.type, 'הכנסה') ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                                {row.type}
-                              </span>
-                            </td>
-                            <td className="p-4 text-left font-bold text-blue-800 text-xs">{formatILS(row.b2026)}</td>
-                            <td className="p-4 text-left font-bold text-slate-800 text-xs">{formatILS(row.compareValue)}</td>
-                            <td className={`p-4 text-left font-black text-xs ${row.isRed ? 'text-red-600' : 'text-emerald-700'}`}>
-                              {formatILS(row.balance)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-8">
-              <div className="flex flex-wrap gap-2 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-2">
-                {viewMode === 'dashboard' && (
-                  <button
-                    onClick={() => setWorkplanQuarter(0)}
-                    className={`flex-1 min-w-[120px] py-3 rounded-2xl font-black text-sm transition-all ${
-                      workplanQuarter === 0
-                        ? 'bg-slate-800 text-white shadow-md'
-                        : 'bg-slate-50 text-slate-400'
-                    }`}
-                  >
-                    כלל השנה
-                  </button>
-                )}
-
-                {[1, 2, 3, 4].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => setWorkplanQuarter(q)}
-                    className={`flex-1 min-w-[100px] py-3 rounded-2xl font-black text-sm transition-all ${
-                      workplanQuarter === q
-                        ? 'bg-emerald-800 text-white shadow-md'
-                        : 'bg-slate-50 text-slate-400 hover:bg-slate-100'
-                    }`}
-                  >
-                    רבעון {q}
-                  </button>
-                ))}
-              </div>
-
-              {viewMode === 'dashboard' ? (
-                <>
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4">
-                    <div className="bg-slate-900 text-white p-6 rounded-[2rem] border shadow-sm flex flex-col items-center justify-center">
-                      <p className="text-[9px] font-black opacity-60 uppercase">סה"כ משימות</p>
-                      <p className="text-3xl lg:text-4xl font-black">{workStats.total}</p>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center border-b-4 border-emerald-500">
-                      <CheckCircle2 className="text-emerald-500 mb-1" size={24} />
-                      <p className="text-[9px] font-black text-slate-400">בוצע</p>
-                      <p className="text-2xl lg:text-3xl font-black text-slate-800">{workStats.p1}%</p>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center border-b-4 border-amber-500">
-                      <Clock className="text-amber-500 mb-1" size={24} />
-                      <p className="text-[9px] font-black text-slate-400">עיכוב</p>
-                      <p className="text-2xl lg:text-3xl font-black text-slate-800">{workStats.p2}%</p>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center border-b-4 border-red-500">
-                      <MinusCircle className="text-red-500 mb-1" size={24} />
-                      <p className="text-[9px] font-black text-slate-400">עצירה</p>
-                      <p className="text-2xl lg:text-3xl font-black text-slate-800">{workStats.p3}%</p>
-                    </div>
-
-                    <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col items-center border-b-4 border-slate-300">
-                      <HelpCircle className="text-slate-300 mb-1" size={24} />
-                      <p className="text-[9px] font-black text-slate-400">לא הגיע הזמן</p>
-                      <p className="text-2xl lg:text-3xl font-black text-slate-800">{workStats.s4}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-auto lg:h-[400px]">
-                    <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 lg:p-8 flex flex-col items-center min-h-[350px]">
-                      <h3 className="font-black text-slate-800 mb-6 border-r-8 border-emerald-500 pr-3 self-start">
-                        {workplanQuarter === 0 ? 'תמונת מצב שנתית' : `סטטוס רבעון ${workplanQuarter}`}
-                      </h3>
-
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={[
-                            { n: 'בוצע', v: workStats.s1 },
-                            { n: 'עיכוב', v: workStats.s2 },
-                            { n: 'עצירה', v: workStats.s3 },
-                            { n: 'ממתין', v: workStats.s4 }
-                          ]}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.1} />
-                          <XAxis dataKey="n" tick={{ fontSize: 10, fontWeight: 'bold' }} />
-                          <YAxis hide />
-                          <Tooltip />
-                          <Bar dataKey="v" radius={[10, 10, 0, 0]} barSize={50}>
-                            {[1, 2, 3, 4].map((_, i) => (
-                              <Cell key={i} fill={STATUS_CONFIG[i + 1].color} />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 lg:p-8 flex flex-col min-h-[350px]">
-                      <h3 className="font-black text-slate-800 mb-6 border-r-8 border-blue-500 pr-3 self-start">
-                        {activeWingId ? 'משימות לפי מחלקה' : 'משימות לפי אגף'}
-                      </h3>
-
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={Array.from(
-                            new Set(filteredWorkData.map((t) => (activeWingId ? t.dept : t.wing)))
-                          ).map((name) => ({
-                            n: name,
-                            v: filteredWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length
-                          }))}
-                          layout="vertical"
-                        >
-                          <XAxis type="number" hide />
-                          <YAxis dataKey="n" type="category" width={110} tick={{ fontSize: 9, fontWeight: 'black' }} />
-                          <Tooltip />
-                          <Bar dataKey="v" fill="#3b82f6" radius={[0, 10, 10, 0]} barSize={18} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  {showOnlyOverdueTasks && (
-                    <div className="flex items-center justify-between bg-red-50 p-4 rounded-2xl border border-red-100 animate-pulse">
-                      <div className="flex items-center gap-3">
-                        <AlertTriangle className="text-red-500" />
-                        <span className="font-black text-red-800 text-sm">מציג חריגות לו"ז בלבד</span>
-                      </div>
-
-                      <button
-                        onClick={() => setShowOnlyOverdueTasks(false)}
-                        className="px-4 py-2 bg-white text-red-600 font-bold rounded-xl border border-red-200"
-                      >
-                        בטל סינון
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 pr-2 uppercase">חיפוש</label>
-                      <input
-                        type="text"
-                        placeholder="חפש משימה או מזהה..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-right"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-black text-slate-400 pr-2 uppercase">מחלקה</label>
-                      <select
-                        value={filterDept}
-                        onChange={(e) => setFilterDept(e.target.value)}
-                        className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none font-bold text-sm text-right"
-                        disabled={showOnlyOverdueTasks}
-                      >
-                        <option value="הכל">כל המחלקות באגף</option>
-                        {availableDepts.map((d) => <option key={d} value={d}>{d}</option>)}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="hidden lg:block bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="grid grid-cols-12 bg-slate-50 p-4 text-[10px] font-black text-slate-400 border-b border-slate-200 uppercase">
-                      <div className="col-span-1">#</div>
-                      <div className="col-span-2">מחלקה</div>
-                      <div className="col-span-4">משימה / לו"ז</div>
-                      <div className="col-span-2 text-center">סטטוס קודם</div>
-                      <div className="col-span-1 text-center">סטטוס ר{workplanQuarter}</div>
-                      <div className="col-span-2 pr-4">הערה</div>
-                    </div>
-
-                    <div className="divide-y divide-slate-100">
-                      {filteredWorkData.map((t) => {
-                        const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
-                        const latestPrev =
-                          prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
-                        const currentStatus = t[`q${workplanQuarter}`];
-                        const isOverdue = parseDateLogic(t.deadline) < new Date() && currentStatus !== 1;
-
-                        return (
-                          <div key={t.id} className="grid grid-cols-12 p-5 lg:p-0 hover:bg-slate-50 transition-colors items-center">
-                            <div className="col-span-1 p-4 text-slate-300 font-mono text-[10px]">#{t.id}</div>
-                            <div className="col-span-2 p-4">
-                              <span className="text-xs font-black text-emerald-800">{t.dept}</span>
-                            </div>
-                            <div className="col-span-4 p-4">
-                              <div className="font-black text-xs leading-relaxed text-slate-800">{t.task}</div>
-                              <div className={`text-[9px] font-bold mt-1 ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
-                                יעד: {formatDate(t.deadline)}
-                              </div>
-                            </div>
-                            <div className="col-span-2 p-4 flex flex-col items-start lg:items-center">
-                              {latestPrev ? (
-                                <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-                                  <History size={12} />
-                                  <span className={`text-[9px] font-black ${STATUS_CONFIG[latestPrev].text}`}>
-                                    {STATUS_CONFIG[latestPrev].label} (ר{prevStatuses[prevStatuses.length - 1]})
-                                  </span>
-                                </div>
-                              ) : (
-                                <span className="text-[9px] text-slate-300">-</span>
-                              )}
-                            </div>
-                            <div className="col-span-1 p-4">
-                              <StatusDropdown
-                                value={currentStatus}
-                                open={openStatusMenuId === t.id}
-                                setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)}
-                                onChange={(val) => {
-                                  updateTaskLocal(t.id, `q${workplanQuarter}`, val);
-                                  setOpenStatusMenuId(null);
-                                }}
-                              />
-                            </div>
-                            <div className="col-span-2 p-4">
-                              <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                                <MessageSquare size={14} className="text-slate-400" />
-                                <input
-                                  type="text"
-                                  placeholder="עדכן הערה..."
-                                  value={t[`n${workplanQuarter}`] || ""}
-                                  onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)}
-                                  className="w-full bg-transparent outline-none text-[10px] font-bold text-right"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="lg:hidden space-y-4">
-                    {filteredWorkData.map((t) => {
-                      const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
-                      const latestPrev =
-                        prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
-                      const currentStatus = t[`q${workplanQuarter}`];
-                      const isOverdue = parseDateLogic(t.deadline) < new Date() && currentStatus !== 1;
-
-                      return (
-                        <div key={t.id} className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div className="text-slate-300 font-mono text-[10px]">#{t.id}</div>
-                            <div className="text-xs font-black text-emerald-800">{t.dept}</div>
-                          </div>
-
-                          <div>
-                            <div className="font-black text-sm leading-relaxed text-slate-800">{t.task}</div>
-                            <div className={`text-[11px] font-bold mt-2 ${isOverdue ? 'text-red-500' : 'text-slate-400'}`}>
-                              יעד: {formatDate(t.deadline)}
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="text-[10px] font-black text-slate-400 mb-1">סטטוס קודם</div>
-                            {latestPrev ? (
-                              <div className="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200">
-                                <History size={12} />
-                                <span className={`text-[10px] font-black ${STATUS_CONFIG[latestPrev].text}`}>
-                                  {STATUS_CONFIG[latestPrev].label} (ר{prevStatuses[prevStatuses.length - 1]})
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-slate-300">-</span>
-                            )}
-                          </div>
-
-                          <div>
-                            <div className="text-[10px] font-black text-slate-400 mb-1">עדכון</div>
-                            <StatusDropdown
-                              value={currentStatus}
-                              open={openStatusMenuId === t.id}
-                              setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)}
-                              onChange={(val) => {
-                                updateTaskLocal(t.id, `q${workplanQuarter}`, val);
-                                setOpenStatusMenuId(null);
-                              }}
-                            />
-                          </div>
-
-                          <div>
-                            <div className="text-[10px] font-black text-slate-400 mb-1">הערה</div>
-                            <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                              <MessageSquare size={14} className="text-slate-400" />
-                              <input
-                                type="text"
-                                placeholder="עדכן הערה..."
-                                value={t[`n${workplanQuarter}`] || ""}
-                                onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)}
-                                className="w-full bg-transparent outline-none text-[12px] font-bold text-right"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           )}
+
+          <div className="max-w-7xl mx-auto">
+            {/* Page Header */}
+            <div className="mb-8 mt-2">
+              <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                {mainTab === 'users' ? 'ניהול גישה והרשאות' : (
+                  <>
+                    {mainTab === 'budget' && <Wallet className="text-emerald-500 hidden sm:block" size={28} />}
+                    {mainTab === 'workplan' && <Target className="text-blue-500 hidden sm:block" size={28} />}
+                    {scopeTitle}
+                  </>
+                )}
+              </h2>
+              <p className="text-slate-500 font-medium text-sm mt-1.5 flex items-center gap-2">
+                {mainTab === 'budget' && viewMode === 'dashboard' && 'תקציר ביצועים פיננסיים והתפלגות לפי מחלקות.'}
+                {mainTab === 'budget' && viewMode === 'table' && 'פירוט סעיפים מלא וניתוח שורות תקציב.'}
+                {mainTab === 'budget' && viewMode === 'control' && 'זיהוי חריגות וניהול סיכונים תקציביים.'}
+                {mainTab === 'workplan' && viewMode === 'dashboard' && 'מעקב התקדמות ויעדים אסטרטגיים.'}
+                {mainTab === 'workplan' && viewMode === 'table' && 'עדכון סטטוסים והערות למשימות שוטפות.'}
+              </p>
+            </div>
+
+            {/* Content Based on Tab */}
+            {mainTab === 'users' ? (
+              <div className="space-y-6 max-w-4xl">
+                {/* Users Tab UI - Refined */}
+                <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8">
+                  <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-5">הוספת משתמש חדש</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <input type="text" placeholder="שם משתמש" value={userForm.username} onChange={(e) => setUserForm(p => ({ ...p, username: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+                    <input type="text" placeholder="סיסמה" value={userForm.password} onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all" />
+                    <select value={userForm.role} onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value, target1: '', target2: '' }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all">
+                      <option value="ADMIN">מנהל (ADMIN)</option>
+                      <option value="WING">ראש אגף (WING)</option>
+                      <option value="DEPT">מנהל מחלקה (DEPT)</option>
+                    </select>
+                    <select value={userForm.active} onChange={(e) => setUserForm(p => ({ ...p, active: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all">
+                      <option value="TRUE">סטטוס: פעיל</option>
+                      <option value="FALSE">סטטוס: מושהה</option>
+                    </select>
+                  </div>
+                  {userForm.role !== 'ADMIN' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
+                      <select value={userForm.target1} onChange={(e) => setUserForm(p => ({ ...p, target1: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none">
+                        <option value="">בחר יעד הרשאה 1 (חובה)</option>
+                        {userTargetOptions(userForm.role).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                      <select value={userForm.target2} onChange={(e) => setUserForm(p => ({ ...p, target2: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none">
+                        <option value="">בחר יעד הרשאה 2 (אופציונלי)</option>
+                        {userTargetOptions(userForm.role).filter(opt => opt !== userForm.target1).map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <button onClick={addUser} className="mt-5 w-full md:w-auto bg-slate-900 text-white px-8 py-3.5 rounded-xl font-bold text-sm hover:bg-slate-800 transition-colors shadow-md">
+                    + צור משתמש
+                  </button>
+                </div>
+
+                {usersLoading ? (
+                  <div className="flex flex-col items-center py-12"><Loader2 className="animate-spin text-slate-300 mb-2" size={32} /></div>
+                ) : (
+                  <div className="space-y-3">
+                    {usersList.map((u) => (
+                      <div key={u.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-4 items-start lg:items-center">
+                        <div className="bg-slate-50 text-slate-400 font-mono text-[10px] p-2 rounded-lg shrink-0">#{u.id}</div>
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-1 w-full">
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block mb-1">שם משתמש</span>
+                            <input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:ring-1 focus:ring-emerald-500" />
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block mb-1">סיסמה</span>
+                            <input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" />
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block mb-1">הרשאה</span>
+                            <select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none">
+                              <option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option>
+                            </select>
+                          </div>
+                          <div>
+                            <span className="text-[9px] font-bold text-slate-400 block mb-1">סטטוס</span>
+                            <select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none">
+                              <option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option>
+                            </select>
+                          </div>
+                        </div>
+                        {u.role !== 'ADMIN' && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 w-full lg:max-w-xs border-t lg:border-t-0 lg:border-r border-slate-100 pt-3 lg:pt-0 lg:pr-4">
+                             <select value={u.target1 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target1: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none">
+                                <option value="">יעד 1</option>{userTargetOptions(u.role).map(o => <option key={o} value={o}>{o}</option>)}
+                             </select>
+                             <select value={u.target2 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target2: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none">
+                                <option value="">יעד 2</option>{userTargetOptions(u.role).filter(o => o !== u.target1).map(o => <option key={o} value={o}>{o}</option>)}
+                             </select>
+                          </div>
+                        )}
+                        <div className="flex w-full lg:w-auto gap-2 mt-2 lg:mt-0">
+                          <button onClick={() => updateUserRow(u)} className="flex-1 lg:flex-none bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold text-xs border border-blue-200 transition-colors">שמור</button>
+                          <button onClick={() => deactivateUserRow(u.id)} className="flex-1 lg:flex-none bg-white hover:bg-red-50 text-red-600 px-4 py-2 rounded-lg font-bold text-xs border border-red-200 transition-colors">מחק</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : mainTab === 'budget' ? (
+              <div className="space-y-6">
+                {viewMode === 'dashboard' && (
+                  <>
+                    {/* Modern Stats Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
+                      <StatCard title="תקציב 2026 (הוצאות)" value={formatILS(budgetStats.expB26)} icon={Wallet} isHighlight={true} />
+                      <StatCard title="ביצוע + שריון 2026" value={formatILS(budgetStats.expCommit26)} icon={TrendingUp} />
+                      <StatCard title="ביצוע בפועל 2026" value={formatILS(budgetStats.expExec26)} icon={TrendingDown} />
+                      <StatCard title="הכנסות (תקציב 2026)" value={formatILS(budgetStats.incB26)} />
+                      <StatCard title="הכנסות (ביצוע בפועל)" value={formatILS(budgetStats.incExec26)} />
+                    </div>
+
+                    {/* Charts Area */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 min-h-[400px] flex flex-col">
+                        <div className="flex justify-between items-end mb-8">
+                           <h3 className="font-black text-slate-800 text-lg">פילוח תקציב הוצאות למחלקות (2026)</h3>
+                        </div>
+                        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                          <BarChart data={budgetByDeptChart} margin={{ top: 0, right: 0, left: 0, bottom: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} interval={0} tickMargin={14} />
+                            <YAxis hide />
+                            <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', fontWeight: 'bold' }} formatter={(v) => formatILS(v)} />
+                            <Bar dataKey="value" radius={[6, 6, 6, 6]} barSize={36}>
+                              {budgetByDeptChart.map((_, i) => (<Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="grid grid-rows-2 gap-6 h-full">
+                         <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-center relative">
+                            <h3 className="font-bold text-slate-400 text-xs tracking-widest uppercase absolute top-5 right-6">הכנסות מול הוצאות</h3>
+                            {budgetByTypePie.length > 0 ? (
+                               <div className="w-full h-full flex items-center justify-center mt-6">
+                                  <ResponsiveContainer width="100%" height={160}>
+                                    <PieChart>
+                                      <Pie data={budgetByTypePie} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={70} stroke="none" paddingAngle={5}>
+                                        {budgetByTypePie.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                                      </Pie>
+                                      <Tooltip formatter={(v) => formatILS(v)} contentStyle={{ borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold' }} />
+                                    </PieChart>
+                                  </ResponsiveContainer>
+                                  <div className="absolute bottom-5 flex gap-4">
+                                     {budgetByTypePie.map((item, i) => (
+                                        <div key={item.name} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                                           <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: PIE_COLORS[i % PIE_COLORS.length]}}></div> {item.name}
+                                        </div>
+                                     ))}
+                                  </div>
+                               </div>
+                            ) : (<span className="text-slate-300 font-bold text-sm">אין נתונים</span>)}
+                         </div>
+
+                         <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-center relative">
+                            <h3 className="font-bold text-slate-400 text-xs tracking-widest uppercase absolute top-5 right-6">ביצוע מול יתרה (הוצאות)</h3>
+                            {budgetExecutionPie.length > 0 ? (
+                               <div className="w-full h-full flex items-center justify-center mt-6">
+                                  <ResponsiveContainer width="100%" height={160}>
+                                    <PieChart>
+                                      <Pie data={budgetExecutionPie} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={70} stroke="none" paddingAngle={5}>
+                                        <Cell fill="#cbd5e1" /> {/* יתרה - אפור */}
+                                        <Cell fill="#0d9488" /> {/* בוצע - ירוק */}
+                                      </Pie>
+                                      <Tooltip formatter={(v) => formatILS(v)} contentStyle={{ borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold' }} />
+                                    </PieChart>
+                                  </ResponsiveContainer>
+                                  <div className="absolute bottom-5 flex gap-4">
+                                     {budgetExecutionPie.map((item, i) => (
+                                        <div key={item.name} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
+                                           <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: i === 0 ? '#cbd5e1' : '#0d9488'}}></div> {i===0?'יתרה':'בוצע'}
+                                        </div>
+                                     ))}
+                                  </div>
+                               </div>
+                            ) : (<span className="text-slate-300 font-bold text-sm">אין נתונים</span>)}
+                         </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {viewMode === 'table' && (
+                  <div className="space-y-4">
+                    {/* Filters Toolbar */}
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                       <div className="flex w-full lg:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all flex-1 lg:max-w-xs">
+                          <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                          <input type="text" placeholder="חיפוש סעיף..." value={budgetSearch} onChange={(e) => setBudgetSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
+                       </div>
+                       
+                       <div className="flex gap-2 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
+                          <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                             <div className="px-3 text-slate-400"><Filter size={14} /></div>
+                             <select value={budgetFilterDept} onChange={(e) => setBudgetFilterDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none">
+                               <option value="הכל">כל המחלקות</option>
+                               {budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                          </div>
+                          <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                             <select value={budgetTypeFilter} onChange={(e) => setBudgetTypeFilter(e.target.value)} className="bg-transparent py-2.5 px-4 text-sm font-bold text-slate-700 outline-none appearance-none">
+                               <option value="הכל">הכנסה/הוצאה</option>
+                               <option value="הכנסה">הכנסה בלבד</option>
+                               <option value="הוצאה">הוצאה בלבד</option>
+                             </select>
+                          </div>
+                       </div>
+                       
+                       <div className="hidden xl:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
+                         {[ { k: 'a2024', l: 'ביצוע 24' }, { k: 'b2025', l: 'תקציב 25' }, { k: 'b2026', l: 'תקציב 26' }, { k: 'a2026', l: 'ביצוע 26' }, { k: 'commitTotal2026', l: 'שריון+ביצוע' } ].map((col) => (
+                            <button key={col.k} onClick={() => toggleBudgetColumn(col.k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${budgetVisibleColumns[col.k] ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{col.l}</button>
+                         ))}
+                       </div>
+                    </div>
+
+                    {/* Desktop Table View */}
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                            <th className="py-4 px-5 w-24">מזהה</th>
+                            <th className="py-4 px-5">שם סעיף תקציבי</th>
+                            <th className="py-4 px-5 w-32">מחלקה</th>
+                            <th className="py-4 px-5 w-24 text-center">סוג</th>
+                            {visibleBudgetColumnDefs.map((col) => <th key={col.key} className="py-4 px-5 w-32 text-left">{col.label}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {filteredBudgetData.map((row) => (
+                            <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
+                              <td className="py-3 px-5 text-[10px] font-mono text-slate-400 group-hover:text-slate-600 transition-colors">{row.id}</td>
+                              <td className="py-3 px-5 text-sm font-black text-slate-800">{row.name}</td>
+                              <td className="py-3 px-5 text-xs font-bold text-slate-500">{row.dept}</td>
+                              <td className="py-3 px-5 text-center">
+                                <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold ${sameKey(row.type, 'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{row.type}</span>
+                              </td>
+                              {visibleBudgetColumnDefs.map((col) => (
+                                <td key={col.key} className="py-3 px-5 text-sm font-bold text-slate-700 text-left tabular-nums">{formatILS(col.value(row))}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Card View */}
+                    <div className="lg:hidden space-y-3 pb-10">
+                       <div className="text-xs font-bold text-slate-400 mb-2 px-1">מציג {filteredBudgetData.length} סעיפים</div>
+                       {filteredBudgetData.map((row) => (
+                          <div key={row.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+                             <div className={`absolute top-0 right-0 w-1 h-full ${sameKey(row.type, 'הכנסה') ? 'bg-emerald-400' : 'bg-orange-400'}`}></div>
+                             <div className="flex justify-between items-start mb-3">
+                               <div className="pr-2">
+                                  <div className="text-[10px] font-mono text-slate-400 mb-0.5">{row.id}</div>
+                                  <div className="font-black text-slate-800 text-sm leading-snug">{row.name}</div>
+                                  <div className="text-xs text-slate-500 font-medium mt-1">{row.dept}</div>
+                               </div>
+                               <div className={`text-[9px] font-bold px-2 py-1 rounded-md shrink-0 ${sameKey(row.type, 'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                                 {row.type}
+                               </div>
+                             </div>
+                             <div className="bg-slate-50 rounded-xl p-3 grid grid-cols-2 gap-y-3 gap-x-2">
+                                {visibleBudgetColumnDefs.map((col) => (
+                                   <div key={col.key} className="flex flex-col">
+                                      <span className="text-[9px] uppercase font-bold text-slate-400">{col.label}</span>
+                                      <span className="text-xs font-black text-slate-700 tabular-nums mt-0.5">{formatILS(col.value(row))}</span>
+                                   </div>
+                                ))}
+                             </div>
+                          </div>
+                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {viewMode === 'control' && (
+                  <div className="space-y-4">
+                    {/* Control specific toolbar */}
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                       <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-full lg:w-auto">
+                         <button onClick={() => setControlCompareBy('a2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'a2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע</button>
+                         <button onClick={() => setControlCompareBy('commitTotal2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'commitTotal2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע+שריון</button>
+                       </div>
+
+                       <div className="flex gap-2 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
+                          <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                             <div className="px-3 text-slate-400"><Filter size={14} /></div>
+                             <select value={budgetFilterDept} onChange={(e) => setBudgetFilterDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none">
+                               <option value="הכל">כל המחלקות</option>
+                               {budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                          </div>
+                          <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                             <select value={budgetTypeFilter} onChange={(e) => setBudgetTypeFilter(e.target.value)} className="bg-transparent py-2.5 px-4 text-sm font-bold text-slate-700 outline-none appearance-none">
+                               <option value="הכל">הכנסה/הוצאה</option>
+                               <option value="הכנסה">הכנסה בלבד</option>
+                               <option value="הוצאה">הוצאה בלבד</option>
+                             </select>
+                          </div>
+                       </div>
+                       
+                       {showOnlyBudgetAlerts && (
+                          <button onClick={() => setShowOnlyBudgetAlerts(false)} className="w-full lg:w-auto px-4 py-2 bg-red-50 text-red-600 font-bold text-xs rounded-xl flex items-center justify-center gap-2"><X size={14}/> בטל סינון חריגות</button>
+                       )}
+                    </div>
+
+                    {/* Desktop Control Table */}
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                            <th className="py-4 px-5 w-24">מזהה</th>
+                            <th className="py-4 px-5">שם סעיף</th>
+                            <th className="py-4 px-5 w-24 text-center">סוג</th>
+                            <th className="py-4 px-5 text-left w-32">תקציב 2026</th>
+                            <th className="py-4 px-5 text-left w-32">{controlCompareBy === 'a2026' ? 'ביצוע' : 'ביצוע+שריון'}</th>
+                            <th className="py-4 px-5 text-left w-32">יתרה</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {controlData.map((row) => (
+                            <tr key={row.id} className={`transition-colors group ${row.isRed ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/50'}`}>
+                              <td className="py-3 px-5 text-[10px] font-mono text-slate-400">{row.id}</td>
+                              <td className="py-3 px-5 text-sm font-black text-slate-800">
+                                {row.name}
+                                <div className="text-[10px] text-slate-400 font-normal mt-0.5">{row.dept}</div>
+                              </td>
+                              <td className="py-3 px-5 text-center">
+                                <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-bold ${sameKey(row.type, 'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{row.type}</span>
+                              </td>
+                              <td className="py-3 px-5 text-sm font-bold text-slate-600 text-left tabular-nums">{formatILS(row.b2026)}</td>
+                              <td className="py-3 px-5 text-sm font-bold text-slate-600 text-left tabular-nums">{formatILS(row.compareValue)}</td>
+                              <td className={`py-3 px-5 text-sm font-black text-left tabular-nums ${row.isRed ? 'text-red-600' : 'text-emerald-600'}`}>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {row.isRed ? <TrendingDown size={14} className="text-red-400"/> : <CheckCircle2 size={14} className="text-emerald-400"/>}
+                                  <span dir="ltr">{formatILS(row.balance)}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Control Cards */}
+                    <div className="lg:hidden space-y-3 pb-10">
+                       {controlData.map((row) => (
+                          <div key={row.id} className={`p-4 rounded-2xl border shadow-sm relative overflow-hidden ${row.isRed ? 'bg-red-50/30 border-red-100' : 'bg-white border-slate-100'}`}>
+                             <div className={`absolute top-0 right-0 w-1.5 h-full ${row.isRed ? 'bg-red-500' : 'bg-slate-200'}`}></div>
+                             <div className="pr-3 mb-3">
+                                <div className="font-black text-slate-800 text-sm leading-tight">{row.name}</div>
+                                <div className="text-[10px] font-mono text-slate-400 mt-1">{row.id} &bull; {row.dept}</div>
+                             </div>
+                             <div className="bg-white/60 rounded-xl p-3 grid grid-cols-3 gap-2 text-center items-center border border-slate-50/50">
+                                <div>
+                                   <div className="text-[9px] uppercase font-bold text-slate-400 mb-1">תקציב</div>
+                                   <div className="text-xs font-bold text-slate-700">{formatILS(row.b2026)}</div>
+                                </div>
+                                <div>
+                                   <div className="text-[9px] uppercase font-bold text-slate-400 mb-1">{controlCompareBy === 'a2026' ? 'ביצוע' : 'שריון+ביצוע'}</div>
+                                   <div className="text-xs font-bold text-slate-700">{formatILS(row.compareValue)}</div>
+                                </div>
+                                <div className={`p-1.5 rounded-lg ${row.isRed ? 'bg-red-100 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                   <div className="text-[9px] uppercase font-black mb-0.5">יתרה</div>
+                                   <div className="text-xs font-black tabular-nums" dir="ltr">{formatILS(row.balance)}</div>
+                                </div>
+                             </div>
+                          </div>
+                       ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              // --- Workplans Tab ---
+              <div className="space-y-6">
+                
+                {/* Quarter Segmented Control */}
+                <div className="flex bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/50 w-full max-w-2xl mx-auto mb-6">
+                   <button onClick={() => setWorkplanQuarter(0)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === 0 ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>שנתי</button>
+                   {[1, 2, 3, 4].map(q => (
+                      <button key={q} onClick={() => setWorkplanQuarter(q)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === q ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>רבעון {q}</button>
+                   ))}
+                </div>
+
+                {viewMode === 'dashboard' ? (
+                  <>
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 lg:gap-4 mb-6">
+                      <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg shadow-slate-900/10 flex flex-col justify-center">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">סה"כ משימות</p>
+                        <p className="text-3xl font-black">{workStats.total}</p>
+                      </div>
+                      <StatCard title="בוצע" value={`${workStats.p1}%`} subtext={`${workStats.s1} משימות`} icon={CheckCircle2} />
+                      <StatCard title="בעיכוב" value={`${workStats.p2}%`} subtext={`${workStats.s2} משימות`} icon={Clock} />
+                      <StatCard title="בהקפאה" value={`${workStats.p3}%`} subtext={`${workStats.s3} משימות`} icon={MinusCircle} />
+                      <StatCard title="ממתין לביצוע" value={workStats.s4} subtext={`מתוך ${workStats.total}`} icon={HelpCircle} />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[350px]">
+                          <h3 className="font-black text-slate-800 mb-6 text-sm">התפלגות סטטוס משימות ({workplanQuarter === 0 ? 'שנתי' : `רבעון ${workplanQuarter}`})</h3>
+                          <ResponsiveContainer width="100%" height={260}>
+                             <BarChart data={[{ n: 'בוצע', v: workStats.s1 }, { n: 'עיכוב', v: workStats.s2 }, { n: 'עצירה', v: workStats.s3 }, { n: 'ממתין', v: workStats.s4 }]} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                <XAxis dataKey="n" axisLine={false} tickLine={false} tick={{ fontSize: 12, fontWeight: 'bold', fill: '#64748b' }} />
+                                <YAxis hide />
+                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.05)'}} />
+                                <Bar dataKey="v" radius={[8, 8, 0, 0]} barSize={48}>
+                                   {[1, 2, 3, 4].map((_, i) => <Cell key={i} fill={STATUS_CONFIG[i + 1].color} />)}
+                                </Bar>
+                             </BarChart>
+                          </ResponsiveContainer>
+                       </div>
+
+                       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[350px]">
+                          <h3 className="font-black text-slate-800 mb-6 text-sm">עומס משימות לפי {activeWingId ? 'מחלקה' : 'אגף'}</h3>
+                          <ResponsiveContainer width="100%" height={260}>
+                             <BarChart layout="vertical" data={Array.from(new Set(filteredWorkData.map((t) => (activeWingId ? t.dept : t.wing)))).map((name) => ({ n: name, v: filteredWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length }))} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="n" type="category" width={100} axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }} />
+                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.05)'}} />
+                                <Bar dataKey="v" fill="#3b82f6" radius={[4, 4, 4, 4]} barSize={14} />
+                             </BarChart>
+                          </ResponsiveContainer>
+                       </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Toolbar */}
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col md:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                       <div className="flex w-full md:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all flex-1 md:max-w-md">
+                          <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                          <input type="text" placeholder="חיפוש משימה חופשי..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
+                       </div>
+                       
+                       <div className="flex w-full md:w-auto gap-2">
+                          <div className="flex-1 md:flex-none items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0 relative">
+                             <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"><Filter size={14} /></div>
+                             <select disabled={showOnlyOverdueTasks} value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="w-full bg-transparent py-2.5 pl-4 pr-9 text-sm font-bold text-slate-700 outline-none appearance-none disabled:opacity-50">
+                               <option value="הכל">כל המחלקות באגף</option>
+                               {availableDepts.map(d => <option key={d} value={d}>{d}</option>)}
+                             </select>
+                          </div>
+                          
+                          {showOnlyOverdueTasks && (
+                             <button onClick={() => setShowOnlyOverdueTasks(false)} className="flex items-center gap-1.5 bg-red-50 text-red-600 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0">
+                               <X size={14}/> הסר סינון
+                             </button>
+                          )}
+                       </div>
+                    </div>
+
+                    {/* Desktop Table */}
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-32">
+                       <table className="w-full text-right relative">
+                          <thead>
+                             <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                <th className="py-4 px-5 w-16">מזהה</th>
+                                <th className="py-4 px-5 w-40">מחלקה</th>
+                                <th className="py-4 px-5">תיאור המשימה ויעד</th>
+                                <th className="py-4 px-5 w-32 text-center">סטטוס קודם</th>
+                                <th className="py-4 px-5 w-40 text-center">עדכון רבעון {workplanQuarter}</th>
+                                <th className="py-4 px-5 w-64">הערות / חסמים</th>
+                             </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                             {filteredWorkData.map(t => {
+                                const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
+                                const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
+                                const currentStatus = t[`q${workplanQuarter}`];
+                                const isOverdue = parseDateLogic(t.deadline) < new Date() && currentStatus !== 1;
+                                
+                                return (
+                                   <tr key={t.id} className="hover:bg-slate-50/40 transition-colors group">
+                                      <td className="py-4 px-5 text-[10px] font-mono text-slate-400">{t.id}</td>
+                                      <td className="py-4 px-5 text-xs font-bold text-slate-600">{t.dept}</td>
+                                      <td className="py-4 px-5">
+                                         <p className="text-sm font-black text-slate-800 leading-snug mb-1.5">{t.task}</p>
+                                         <div className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 ${isOverdue ? 'text-red-600 bg-red-50' : 'text-slate-500'}`}>
+                                            <Clock size={10} /> יעד: {formatDate(t.deadline)}
+                                         </div>
+                                      </td>
+                                      <td className="py-4 px-5 text-center">
+                                         {latestPrev ? (
+                                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[latestPrev].bg} ${STATUS_CONFIG[latestPrev].text} ${STATUS_CONFIG[latestPrev].border}`}>
+                                               <History size={10} className="opacity-70" />
+                                               {STATUS_CONFIG[latestPrev].label} <span className="opacity-50 font-normal">(ר{prevStatuses[prevStatuses.length - 1]})</span>
+                                            </div>
+                                         ) : <span className="text-slate-300 text-xl leading-none">-</span>}
+                                      </td>
+                                      <td className="py-4 px-5">
+                                         <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                      </td>
+                                      <td className="py-4 px-5">
+                                         <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all">
+                                            <MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input type="text" placeholder="הקלד הערה למנהל..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400" />
+                                         </div>
+                                      </td>
+                                   </tr>
+                                )
+                             })}
+                          </tbody>
+                       </table>
+                    </div>
+
+                    {/* Mobile App-like Cards */}
+                    <div className="lg:hidden space-y-4 pb-24">
+                       <div className="text-xs font-bold text-slate-400 px-2">מציג {filteredWorkData.length} משימות</div>
+                       {filteredWorkData.map(t => {
+                          const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
+                          const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
+                          const currentStatus = t[`q${workplanQuarter}`];
+                          const isOverdue = parseDateLogic(t.deadline) < new Date() && currentStatus !== 1;
+
+                          return (
+                             <div key={t.id} className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] p-5 relative overflow-visible">
+                                <div className="flex justify-between items-start mb-3">
+                                   <div className="bg-slate-100 px-2 py-0.5 rounded text-[9px] font-mono text-slate-500">#{t.id}</div>
+                                   <div className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded">{t.dept}</div>
+                                </div>
+                                
+                                <h4 className="font-black text-slate-800 text-sm leading-snug mb-3 pr-1">{t.task}</h4>
+                                
+                                <div className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-md mb-4 ${isOverdue ? 'text-red-600 bg-red-50' : 'text-slate-500 bg-slate-50'}`}>
+                                   <Clock size={12} /> יעד לביצוע: {formatDate(t.deadline)}
+                                </div>
+
+                                <div className="bg-slate-50 rounded-2xl p-4 space-y-4 border border-slate-100/50">
+                                   <div className="grid grid-cols-2 gap-4 items-center">
+                                      <div>
+                                         <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">סטטוס קודם</p>
+                                         {latestPrev ? (
+                                            <div className="inline-flex items-center gap-1.5">
+                                               <div className={`w-2 h-2 rounded-full ${STATUS_CONFIG[latestPrev].bg.replace('bg-', 'bg-').replace('50', '400')}`}></div>
+                                               <span className="text-[11px] font-bold text-slate-600">{STATUS_CONFIG[latestPrev].label}</span>
+                                            </div>
+                                         ) : <span className="text-[11px] text-slate-400 font-medium">אין מידע</span>}
+                                      </div>
+                                      <div>
+                                         <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון עכשיו (ר{workplanQuarter})</p>
+                                         <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                      </div>
+                                   </div>
+
+                                   <div className="relative pt-2 border-t border-slate-200/60">
+                                      <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות לחמ"ל</p>
+                                      <textarea 
+                                         rows={1}
+                                         placeholder="הקלד כאן..." 
+                                         value={t[`n${workplanQuarter}`] || ""} 
+                                         onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} 
+                                         className="w-full bg-white border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none overflow-hidden" 
+                                      />
+                                   </div>
+                                </div>
+                             </div>
+                          );
+                       })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </main>
       </div>
     </div>
