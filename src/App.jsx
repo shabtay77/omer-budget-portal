@@ -84,9 +84,18 @@ const sameKey = (a, b) => normalizeKey(a) === normalizeKey(b);
 const cleanNum = (val) => {
   if (typeof val === 'number') return val;
   if (!val || val === "") return 0;
-  const str = String(val).replace(/,/g, '').replace(/\s/g, '');
-  const n = parseFloat(str);
-  return isNaN(n) ? 0 : n;
+  
+  let str = String(val).trim();
+  // זיהוי מספר שלילי (למקרה שהאקסל מייצא מינוס או סוגריים חשבונאיים)
+  const isNegative = str.includes('-') || (str.includes('(') && str.includes(')'));
+  
+  // מסיר הכל חוץ מספרות ונקודה עשרונית (מעיף ₪, פסיקים, רווחים וכו')
+  str = str.replace(/[^\d.]/g, '');
+  
+  let n = parseFloat(str);
+  if (isNaN(n)) return 0;
+  
+  return isNegative ? -Math.abs(n) : Math.abs(n);
 };
 
 const getOverallRating = (task) => {
@@ -484,7 +493,7 @@ const App = () => {
       const b2026 = cleanNum(item.b2026);
       const a2026 = cleanNum(e.a2026);
       const commit = cleanNum(e.commit);
-      return { ...item, a2024: cleanNum(item.a2024), b2025: cleanNum(item.b2025), b2026, a2026, commit, commitTotal2026: a2026 + commit };
+      return { ...item, a2024: cleanNum(item.a2024), b2025: cleanNum(item.b2025), b2026, a2026, commit, commitTotal2026: commit };
     });
   }, [staticData, executionMap, activeWingId, currentUser]);
 
