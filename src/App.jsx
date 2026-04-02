@@ -351,12 +351,14 @@ const App = () => {
       const headers = (rows[0] || []).map((h) => h.trim().toLowerCase());
       const map = {};
       const idIdx = headers.findIndex((h) => h.includes('id'));
-      const a26Idx = headers.findIndex((h) => h.includes('a2026'));
-      const c26Idx = headers.findIndex((h) => h.includes('commit'));
+      const a26Idx = headers.findIndex((h) => h.includes('a2026') || h.includes('ביצוע'));
+      const c26Idx = headers.findIndex((h) => h.includes('commit') || h.includes('שריון'));
 
       rows.slice(1).forEach((cols) => {
         if (cols[idIdx]) {
-          map[String(cols[idIdx]).trim()] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
+          // מנקה את ה-ID ממצבים של 101.0
+          const normalizedId = String(cols[idIdx]).trim().split('.')[0];
+          map[normalizedId] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
         }
       });
       setExecutionMap(map);
@@ -483,17 +485,23 @@ const App = () => {
     }
   }, [loading, mainTab, viewMode, activeWingId, workPlans, hasSeenWorkplanPopup, currentUser, workplanQuarter]);
 
-  const fullBudgetData = useMemo(() => {
+    const fullBudgetData = useMemo(() => {
     let data = staticData;
     if (currentUser?.role === 'WING') data = data.filter((i) => matchesUserTargets(i.wing, currentUser));
     if (currentUser?.role === 'DEPT') data = data.filter((i) => matchesUserTargets(i.dept, currentUser));
     if (activeWingId) data = data.filter((i) => sameKey(i.wing, activeWingId));
+    
     return data.map((item) => {
-      const e = executionMap[item.id] || { a2026: 0, commit: 0 };
+      const normalizedId = String(item.id).trim().split('.')[0];
+      const e = executionMap[normalizedId] || { a2026: 0, commit: 0 };
       const b2026 = cleanNum(item.b2026);
       const a2026 = cleanNum(e.a2026);
       const commit = cleanNum(e.commit);
-      return { ...item, a2024: cleanNum(item.a2024), b2025: cleanNum(item.b2025), b2026, a2026, commit, commitTotal2026: commit };
+      
+      // החישוב שתוקן:
+      const commitTotal2026 = a2026 + commit;
+
+      return { ...item, a2024: cleanNum(item.a2024), b2025: cleanNum(item.b2025), b2026, a2026, commit, commitTotal2026 };
     });
   }, [staticData, executionMap, activeWingId, currentUser]);
 
@@ -685,7 +693,7 @@ const App = () => {
   const scopeTitle = useMemo(() => {
     if (!currentUser) return 'כלל המועצה';
     if (currentUser.role === 'ADMIN') return activeWingId || 'כלל המועצה';
-    const targets = [currentUser.target1, currentUser.target2].map(cleanStr).filter(Boolean);
+    const targets = [currentUser.target1, currentUser.target2].filter(Boolean).map(cleanStr);
     return targets.join(' / ') || activeWingId || 'כלל המועצה';
   }, [currentUser, activeWingId]);
 
@@ -823,41 +831,71 @@ const App = () => {
                 )}
               </div>
               <div className="p-4 space-y-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
-                   {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
-                </p>
-                {currentUser.role === 'ADMIN' && (
-                  <>
-                    <button onClick={() => { setActiveWingId(null); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${!activeWingId ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>כלל המועצה</button>
-                    {wingsOptions.map((name) => {
-                      const Icon = ICONS[name] || Building2;
-                      return (
-                        <button key={name} onClick={() => { setActiveWingId(name); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${sameKey(activeWingId, name) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>
-                          <Icon size={14} className={sameKey(activeWingId, name) ? 'text-emerald-600' : 'text-slate-400'} /> <span className="truncate">{name}</span>
-                        </button>
-                      );
-                    })}
-                  </>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
+               {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
+            </p>
+            {currentUser.role === 'ADMIN' && (
+              <>
+                <button onClick={() => { setActiveWingId(null); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${!activeWingId ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>כלל המועצה</button>
+                {wingsOptions.map((name) => {
+                  const Icon = ICONS[name] || Building2;
+                  return (
+                    <button key={name} onClick={() => { setActiveWingId(name); setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${sameKey(activeWingId, name) ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>
+                      <Icon size={14} className={sameKey(activeWingId, name) ? 'text-emerald-600' : 'text-slate-400'} /> <span className="truncate">{name}</span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+            {currentUser.role === 'WING' && (
+              <>
+                <button onClick={() => { setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${(filterDept === 'הכל' && budgetFilterDept === 'הכל') ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>{currentUser.target1} (כל המחלקות)</button>
+                {wingDeptsList.map((name) => {
+                  const isActive = filterDept === name || budgetFilterDept === name;
+                  return (
+                    <button key={name} onClick={() => { setFilterDept(name); setBudgetFilterDept(name); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} /> <span className="truncate">{name}</span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+            {currentUser.role === 'DEPT' && (
+              <div className="flex flex-col gap-2">
+                {[currentUser.target1, currentUser.target2].filter(Boolean).length > 1 && (
+                  <button 
+                    onClick={() => { setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} 
+                    className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${(filterDept === 'הכל' && budgetFilterDept === 'הכל') ? 'bg-slate-900 text-white shadow-md' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'}`}
+                  >
+                    כל המחלקות שלי
+                  </button>
                 )}
-                {currentUser.role === 'WING' && (
-                  <>
-                    <button onClick={() => { setFilterDept('הכל'); setBudgetFilterDept('הכל'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${(filterDept === 'הכל' && budgetFilterDept === 'הכל') ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>{currentUser.target1} (כל המחלקות)</button>
-                    {wingDeptsList.map((name) => {
-                      const isActive = filterDept === name || budgetFilterDept === name;
-                      return (
-                        <button key={name} onClick={() => { setFilterDept(name); setBudgetFilterDept(name); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all ${isActive ? 'bg-emerald-50 text-emerald-800' : 'text-slate-500 hover:bg-slate-50'}`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} /> <span className="truncate">{name}</span>
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-                {currentUser.role === 'DEPT' && (
-                  <div className="bg-emerald-50 text-emerald-800 px-4 py-3 rounded-xl font-bold text-sm flex items-center gap-3 border border-emerald-100">
-                    <Building2 size={16} className="text-emerald-600" /> <span className="truncate">{currentUser.target1}</span>
-                  </div>
-                )}
+                {[currentUser.target1, currentUser.target2].filter(Boolean).map(deptName => {
+                  const nameStr = cleanStr(deptName);
+                  const isActive = sameKey(filterDept, nameStr) || sameKey(budgetFilterDept, nameStr);
+                  // אם יש רק מחלקה אחת, היא תוצג ככפתור כהה וללא אפשרות לחיצה
+                  const isSingleDept = [currentUser.target1, currentUser.target2].filter(Boolean).length === 1;
+
+                  return (
+                    <button 
+                      key={nameStr} 
+                      onClick={() => { 
+                        if (!isSingleDept) {
+                          setFilterDept(nameStr); 
+                          setBudgetFilterDept(nameStr); 
+                          setIsMenuOpen(false); 
+                        }
+                      }} 
+                      className={`w-full flex items-center justify-start gap-3 px-4 py-2.5 rounded-xl text-xs transition-all ${isSingleDept ? 'bg-emerald-50 text-emerald-800 font-bold border border-emerald-100 cursor-default' : isActive ? 'bg-emerald-100 text-emerald-900 font-bold border border-emerald-200 shadow-sm' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100'}`}
+                    >
+                      <Building2 size={16} className={isSingleDept || isActive ? 'text-emerald-600 shrink-0' : 'text-slate-400 shrink-0'} />
+                      <span className="truncate">{nameStr}</span>
+                    </button>
+                  );
+                })}
               </div>
+            )}
+          </div>
             </div>
           )}
         </aside>
