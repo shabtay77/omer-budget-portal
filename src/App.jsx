@@ -968,28 +968,61 @@ const App = () => {
                 </div>
                 {usersLoading ? ( <div className="flex flex-col items-center py-12"><Loader2 className="animate-spin text-slate-300 mb-2" size={32} /></div> ) : (
                   <div className="space-y-3">
-                    {usersList.map((u) => (
-                      <div key={u.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-4 lg:items-center">
-                        <div className="bg-slate-50 text-slate-400 font-mono text-[10px] p-2 rounded-lg shrink-0">#{u.id}</div>
-                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 flex-1">
-                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">שם משתמש</span><input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סיסמה</span><input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-                          {/* השדה החדש שהוספנו לאימייל בעריכה */}
-                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">אימייל</span><input type="email" value={u.email || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, email: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" placeholder="mail@example.com" /></div>
-                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">הרשאה</span><select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option></select></div>
-                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סטטוס</span><select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option></select></div>
-                      </div>
-                        {u.role !== 'ADMIN' && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 lg:max-w-xs border-t lg:border-t-0 lg:border-r border-slate-100 pt-3 lg:pt-0 lg:pr-4">
-                             <select value={u.target1 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target1: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none"><option value="">יעד 1</option>{userTargetOptions(u.role).map(o => <option key={o} value={o}>{o}</option>)}</select>
-                             <select value={u.target2 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target2: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none"><option value="">יעד 2</option>{userTargetOptions(u.role).filter(o => o !== u.target1).map(o => <option key={o} value={o}>{o}</option>)}</select>
+                    {usersList.map((u) => {
+                      const isAd = u.role === 'ADMIN';
+                      return (
+                        <div key={u.id} className="bg-white p-3 lg:p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col xl:flex-row gap-3 xl:items-center">
+                          <div className="bg-slate-50 text-slate-400 font-mono text-[10px] py-1 px-2 rounded-md shrink-0 self-start xl:self-center">#{u.id}</div>
+                          
+                          {/* גריד דינמי: 5 עמודות לאדמין, 7 עמודות לאחרים (במסך מחשב) */}
+                          <div className={`grid gap-2 flex-1 w-full ${isAd ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'}`}>
+                            
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">שם משתמש</span>
+                              <input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none focus:ring-1 focus:ring-emerald-500" />
+                            </div>
+                            
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">סיסמה</span>
+                              <input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-mono outline-none focus:ring-1 focus:ring-emerald-500" />
+                            </div>
+                            
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">אימייל</span>
+                              <input type="email" value={u.email || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, email: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-mono outline-none focus:ring-1 focus:ring-emerald-500" placeholder="mail@example.com" />
+                            </div>
+                            
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">הרשאה</span>
+                              <select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option></select>
+                            </div>
+                            
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">סטטוס</span>
+                              <select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option></select>
+                            </div>
+
+                            {!isAd && (
+                              <>
+                                <div className="min-w-0">
+                                  <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">יעד 1</span>
+                                  <select value={u.target1 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target1: e.target.value } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="">יעד 1</option>{userTargetOptions(u.role).map(o => <option key={o} value={o}>{o}</option>)}</select>
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">יעד 2</span>
+                                  <select value={u.target2 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target2: e.target.value } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="">יעד 2</option>{userTargetOptions(u.role).filter(o => o !== u.target1).map(o => <option key={o} value={o}>{o}</option>)}</select>
+                                </div>
+                              </>
+                            )}
                           </div>
-                        )}
-                        <div className="flex w-full lg:w-auto gap-2 mt-2 lg:mt-0">
-                          <button onClick={() => updateUserRow(u)} className="flex-1 lg:flex-none bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-bold text-xs border border-blue-200 transition-colors hover:bg-blue-100">שמור</button>
-                          <button onClick={() => deactivateUserRow(u.id)} className="flex-1 lg:flex-none bg-white text-red-600 px-4 py-2 rounded-lg font-bold text-xs border border-red-200 transition-colors hover:bg-red-50">מחק</button>
+
+                          <div className="flex w-full xl:w-auto gap-2 shrink-0 mt-2 xl:mt-0">
+                            <button onClick={() => updateUserRow(u)} className="flex-1 xl:flex-none bg-blue-50 text-blue-700 px-5 py-2 rounded-md font-bold text-xs border border-blue-200 transition-colors hover:bg-blue-100">שמור</button>
+                            <button onClick={() => deactivateUserRow(u.id)} className="flex-1 xl:flex-none bg-white text-red-600 px-5 py-2 rounded-md font-bold text-xs border border-red-200 transition-colors hover:bg-red-50">מחק</button>
+                          </div>
                         </div>
-                      </div>
+                      );
+                    })}
                     ))}
                   </div>
                 )}
