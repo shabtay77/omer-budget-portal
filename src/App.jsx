@@ -772,7 +772,7 @@ const App = () => {
           
           {/* ----- תוספת הלוגו של המועצה ----- */}
           <div className="flex items-center border-l border-slate-200 pl-4 ml-1">
-            <img src="/logo.png" alt="מועצת עומר" className="h-8 lg:h-10 object-contain drop-shadow-sm" />
+            <img src="/logo.png" alt="מועצת עומר" className="h-14 lg:h-20 object-contain drop-shadow-sm" />
           </div>
           {/* ---------------------------------- */}
 
