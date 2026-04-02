@@ -261,7 +261,8 @@ const App = () => {
 
   const [usersList, setUsersList] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
-  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
+  // שים לב שהוספתי את ה-email: ''
+  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
   const [openStatusMenuId, setOpenStatusMenuId] = useState(null);
 
   const isAharony = currentUser?.user === 'aharony';
@@ -418,7 +419,7 @@ const App = () => {
     try {
       const res = await fetch(GAS_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'addUser', ...userForm, target1: userForm.role === 'ADMIN' ? '' : userForm.target1, target2: userForm.role === 'ADMIN' ? '' : userForm.target2 })
+        body: JSON.stringify({ action: 'addUser', ...userForm, email: userForm.email, target1: userForm.role === 'ADMIN' ? '' : userForm.target1, target2: userForm.role === 'ADMIN' ? '' : userForm.target2 })
       }).then((r) => ensureOk(r, 'Add user'));
       const data = await res.json();
       if (data.success) {
@@ -433,7 +434,7 @@ const App = () => {
     try {
       const res = await fetch(GAS_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'updateUser', ...user, target1: user.role === 'ADMIN' ? '' : user.target1, target2: user.role === 'ADMIN' ? '' : user.target2, active: String(user.active || 'TRUE').toUpperCase() })
+        body: JSON.stringify({ action: 'updateUser', ...user, email: user.email, target1: user.role === 'ADMIN' ? '' : user.target1, target2: user.role === 'ADMIN' ? '' : user.target2, active: String(user.active || 'TRUE').toUpperCase() })
       }).then((r) => ensureOk(r, 'Update user'));
       const data = await res.json();
       if (data.success) { await loadUsers(); alert('המשתמש עודכן בהצלחה'); } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
@@ -768,6 +769,13 @@ const App = () => {
       <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-4 py-3 flex justify-between items-center shadow-[0_4px_20px_-10px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-4">
           <button onClick={() => setIsMenuOpen(true)} className="lg:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"><Menu size={22} /></button>
+          
+          {/* ----- תוספת הלוגו של המועצה ----- */}
+          <div className="flex items-center border-l border-slate-200 pl-4 ml-1">
+            <img src="/logo.png" alt="מועצת עומר" className="h-8 lg:h-10 object-contain drop-shadow-sm" />
+          </div>
+          {/* ---------------------------------- */}
+
           <div className="hidden sm:flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
             <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תקציב</button>
             <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תכניות עבודה</button>
@@ -934,16 +942,18 @@ const App = () => {
               <div className="space-y-6 max-w-4xl">
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8">
                   <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-5">הוספת משתמש חדש</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <input type="text" placeholder="שם משתמש" value={userForm.username} onChange={(e) => setUserForm(p => ({ ...p, username: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
-                    <input type="text" placeholder="סיסמה" value={userForm.password} onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
-                    <select value={userForm.role} onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value, target1: '', target2: '' }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
-                      <option value="ADMIN">מנהל (ADMIN)</option><option value="WING">ראש אגף (WING)</option><option value="DEPT">מנהל מחלקה (DEPT)</option>
-                    </select>
-                    <select value={userForm.active} onChange={(e) => setUserForm(p => ({ ...p, active: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
-                      <option value="TRUE">סטטוס: פעיל</option><option value="FALSE">סטטוס: מושהה</option>
-                    </select>
-                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <input type="text" placeholder="שם משתמש" value={userForm.username} onChange={(e) => setUserForm(p => ({ ...p, username: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                  <input type="text" placeholder="סיסמה" value={userForm.password} onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                    {/* השדה החדש שהוספנו לאימייל */}
+                  <input type="email" placeholder="אימייל" value={userForm.email || ''} onChange={(e) => setUserForm(p => ({ ...p, email: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
+                  <select value={userForm.role} onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value, target1: '', target2: '' }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
+                  <option value="ADMIN">מנהל (ADMIN)</option><option value="WING">ראש אגף (WING)</option><option value="DEPT">מנהל מחלקה (DEPT)</option>
+                  </select>
+                  <select value={userForm.active} onChange={(e) => setUserForm(p => ({ ...p, active: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
+                  <option value="TRUE">סטטוס: פעיל</option><option value="FALSE">סטטוס: מושהה</option>
+                  </select>
+              </div>  
                   {userForm.role !== 'ADMIN' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
                       <select value={userForm.target1} onChange={(e) => setUserForm(p => ({ ...p, target1: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
@@ -961,12 +971,14 @@ const App = () => {
                     {usersList.map((u) => (
                       <div key={u.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-4 lg:items-center">
                         <div className="bg-slate-50 text-slate-400 font-mono text-[10px] p-2 rounded-lg shrink-0">#{u.id}</div>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 flex-1">
-                          <div><span className="text-[9px] font-bold text-slate-400 block mb-1">שם משתמש</span><input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-                          <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סיסמה</span><input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" /></div>
-                          <div><span className="text-[9px] font-bold text-slate-400 block mb-1">הרשאה</span><select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option></select></div>
-                          <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סטטוס</span><select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option></select></div>
-                        </div>
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 flex-1">
+                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">שם משתמש</span><input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:ring-1 focus:ring-emerald-500" /></div>
+                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סיסמה</span><input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" /></div>
+                          {/* השדה החדש שהוספנו לאימייל בעריכה */}
+                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">אימייל</span><input type="email" value={u.email || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, email: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono outline-none focus:ring-1 focus:ring-emerald-500" placeholder="mail@example.com" /></div>
+                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">הרשאה</span><select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option></select></div>
+                        <div><span className="text-[9px] font-bold text-slate-400 block mb-1">סטטוס</span><select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold outline-none"><option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option></select></div>
+                      </div>
                         {u.role !== 'ADMIN' && (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 flex-1 lg:max-w-xs border-t lg:border-t-0 lg:border-r border-slate-100 pt-3 lg:pt-0 lg:pr-4">
                              <select value={u.target1 || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, target1: e.target.value } : x))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none"><option value="">יעד 1</option>{userTargetOptions(u.role).map(o => <option key={o} value={o}>{o}</option>)}</select>
