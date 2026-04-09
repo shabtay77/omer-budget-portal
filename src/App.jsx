@@ -201,7 +201,7 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
   );
 }
 
-const StatCard = ({ title, value, subtext, icon: Icon, isHighlight }) => (
+const StatCard = ({ title, value, subtext, icon: Icon, isHighlight, progress }) => (
   <div className={`p-5 rounded-2xl border transition-all duration-300 hover:shadow-md relative overflow-hidden group flex flex-col justify-center min-h-[110px] ${isHighlight ? 'bg-emerald-900 border-emerald-800 text-white shadow-emerald-900/20' : 'bg-white border-slate-200 shadow-sm'}`}>
     {Icon && (
       <div className={`absolute -left-4 -top-4 opacity-[0.03] group-hover:scale-110 transition-transform duration-500 pointer-events-none`}>
@@ -215,6 +215,17 @@ const StatCard = ({ title, value, subtext, icon: Icon, isHighlight }) => (
       </div>
       <p className={`text-2xl lg:text-3xl font-black ${isHighlight ? 'text-white' : 'text-slate-800'}`}>{value}</p>
       {subtext && <p className={`text-xs mt-1 font-medium ${isHighlight ? 'text-emerald-200/80' : 'text-slate-400'}`}>{subtext}</p>}
+      {progress !== undefined && (
+        <div className="mt-3">
+          <div className={`w-full h-1.5 rounded-full ${isHighlight ? 'bg-emerald-800' : 'bg-slate-100'}`}>
+            <div
+              className={`h-1.5 rounded-full transition-all duration-700 ${progress > 90 ? 'bg-red-400' : progress > 70 ? 'bg-amber-400' : 'bg-emerald-400'}`}
+              style={{ width: `${Math.min(progress, 100)}%` }}
+            />
+          </div>
+          <p className={`text-[10px] font-bold mt-1 ${isHighlight ? 'text-emerald-200' : progress > 90 ? 'text-red-500' : 'text-slate-400'}`}>{progress}% מהתקציב</p>
+        </div>
+      )}
     </div>
   </div>
 );
@@ -245,11 +256,15 @@ const App = () => {
   const [sortOrder, setSortOrder] = useState('default');
   const [activePopup, setActivePopup] = useState(null);
   const [popupCount, setPopupCount] = useState(0);
+  const [showQuarterPicker, setShowQuarterPicker] = useState(false);
   const [showOnlyOverdueTasks, setShowOnlyOverdueTasks] = useState(false);
+  const [filterStatus, setFilterStatus] = useState(null);
   const [showOnlyBudgetAlerts, setShowOnlyBudgetAlerts] = useState(false);
   const [hasSeenWorkplanPopup, setHasSeenWorkplanPopup] = useState(false);
   const [hasSeenBudgetPopup, setHasSeenBudgetPopup] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+  const [expandedCards, setExpandedCards] = useState(new Set());
 
   const [budgetSearch, setBudgetSearch] = useState('');
   const [budgetFilterDept, setBudgetFilterDept] = useState('הכל');
@@ -277,6 +292,7 @@ const App = () => {
   useEffect(() => {
     setShowOnlyBudgetAlerts(false);
     setShowOnlyOverdueTasks(false);
+    setFilterStatus(null);
     setSearch('');
     setBudgetSearch('');
     setFilterDept('הכל');
@@ -286,10 +302,10 @@ const App = () => {
   }, [mainTab, viewMode]);
 
   useEffect(() => {
-    if (mainTab === 'workplan' && viewMode === 'table' && workplanQuarter === 0) {
-      setWorkplanQuarter(1);
+    if (mainTab === 'workplan' && viewMode === 'table') {
+      setShowQuarterPicker(true);
     }
-  }, [mainTab, viewMode, workplanQuarter]);
+  }, [mainTab, viewMode]);
 
   // מנגנון שמירה אוטומטית (Auto-Save)
   useEffect(() => {
@@ -580,6 +596,19 @@ const App = () => {
     });
   }, [filteredBudgetData, controlCompareBy]);
 
+  const top5Overages = useMemo(() =>
+    fullBudgetData
+      .map(r => ({ ...r, balance: r.b2026 - r.a2026, isRed: (sameKey(r.type,'הכנסה') && r.b2026 - r.a2026 > 0) || (sameKey(r.type,'הוצאה') && r.b2026 - r.a2026 < 0) }))
+      .filter(r => r.isRed)
+      .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
+      .slice(0, 5)
+  , [fullBudgetData]);
+
+  const budgetAlertsCount = useMemo(() => fullBudgetData.filter(row => {
+    const balance = row.b2026 - row.a2026;
+    return (sameKey(row.type, 'הכנסה') && balance > 0) || (sameKey(row.type, 'הוצאה') && balance < 0);
+  }).length, [fullBudgetData]);
+
   const availableDepts = useMemo(() => {
     let pool = workPlans;
     if (currentUser?.role === 'WING') pool = pool.filter((t) => matchesUserTargets(t.wing, currentUser));
@@ -604,8 +633,9 @@ const App = () => {
       );
     }
     if (showOnlyOverdueTasks) data = data.filter((t) => isTaskOverdue(t, workplanQuarter));
+    if (filterStatus !== null) data = data.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === filterStatus);
     return data;
-  }, [workPlans, currentUser, activeWingId, filterDept, search, showOnlyOverdueTasks, workplanQuarter]);
+  }, [workPlans, currentUser, activeWingId, filterDept, search, showOnlyOverdueTasks, filterStatus, workplanQuarter]);
 
   const sortedWorkData = useMemo(() => {
     if (sortOrder === 'default') return filteredWorkData;
@@ -746,6 +776,38 @@ const App = () => {
         </div>
       )}
 
+      {/* Quarter Picker Popup */}
+      {showQuarterPicker && (
+        <div className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-5 text-blue-500">
+                <Target size={32} strokeWidth={2.5} />
+              </div>
+              <h3 className="text-xl font-black mb-1">עדכון תכנית עבודה</h3>
+              <p className="text-slate-500 text-sm mb-7">לאיזה רבעון תרצה לעדכן?</p>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {[1, 2, 3, 4].map(q => {
+                  const currentQ = Math.ceil((new Date().getMonth() + 1) / 3);
+                  const isCurrent = q === currentQ;
+                  return (
+                    <button
+                      key={q}
+                      onClick={() => { setWorkplanQuarter(q); setShowQuarterPicker(false); }}
+                      className={`py-4 rounded-2xl font-black text-lg transition-all hover:scale-[1.03] active:scale-[0.97] ${isCurrent ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                    >
+                      רבעון {q}
+                      {isCurrent && <div className="text-[10px] font-bold text-blue-200 mt-0.5">נוכחי</div>}
+                    </button>
+                  );
+                })}
+              </div>
+              <button onClick={() => setShowQuarterPicker(false)} className="w-full py-3 text-slate-400 font-bold text-sm hover:text-slate-600 transition-colors">ביטול</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modals */}
       {(activePopup === 'workplan' || activePopup === 'budget') && (
         <div className="fixed inset-0 z-[1000] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -785,10 +847,10 @@ const App = () => {
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
           
-          {/* אינדיקטור שמירה אוטומטית */}
-          {saveStatus === 'saving' && <div className="flex items-center gap-1.5 text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-1 rounded-lg"><Loader2 size={12} className="animate-spin"/> <span className="hidden sm:inline">שומר...</span></div>}
-          {saveStatus === 'saved' && <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg animate-in fade-in duration-300"><CheckCircle2 size={12}/> <span className="hidden sm:inline">נשמר</span></div>}
-          {saveStatus === 'error' && <div className="flex items-center gap-1.5 text-[10px] font-bold text-red-600 bg-red-50 px-2 py-1 rounded-lg animate-in slide-in-from-top-1"><AlertTriangle size={12}/> <span className="hidden sm:inline">שגיאה</span></div>}
+          {/* אינדיקטור שמירה — נקודה קטנה */}
+          {saveStatus === 'saving' && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" title="שומר..." />}
+          {saveStatus === 'saved' && <div className="w-2 h-2 rounded-full bg-emerald-400" title="נשמר" />}
+          {saveStatus === 'error' && <div className="w-2 h-2 rounded-full bg-red-500" title="שגיאה בשמירה" />}
 
           <button onClick={loadData} disabled={loading} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs hover:bg-slate-100 transition-colors">
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> <span className="hidden sm:inline">רענן נתונים</span>
@@ -830,12 +892,16 @@ const App = () => {
                 <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
                   <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
                 </button>
-                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan' && workplanQuarter === 0) setWorkplanQuarter(1); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan') setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
                   <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
                 </button>
                 {mainTab === 'budget' && (
                   <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-red-50 text-red-700 border border-red-100' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600'}`}>
-                    <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} /> בקרת חריגות
+                    <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} />
+                    <span>בקרת חריגות</span>
+                    {budgetAlertsCount > 0 && (
+                      <span className="mr-auto bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{budgetAlertsCount}</span>
+                    )}
                   </button>
                 )}
               </div>
@@ -910,7 +976,7 @@ const App = () => {
         </aside>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-8 scroll-smooth relative">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-4 lg:p-8 pb-24 lg:pb-8 scroll-smooth relative">
           {orphanedDataAlert && (
             <div className="mb-6 bg-red-50/80 backdrop-blur-sm border border-red-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-3">
@@ -1037,23 +1103,26 @@ const App = () => {
                   <>
                     <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
                       <StatCard title="תקציב 2026 (הוצאות)" value={formatILS(budgetStats.expB26)} icon={Wallet} isHighlight={true} />
-                      <StatCard title="ביצוע + שריון 2026" value={formatILS(budgetStats.expCommit26)} icon={TrendingUp} />
-                      <StatCard title="ביצוע בפועל 2026" value={formatILS(budgetStats.expExec26)} icon={TrendingDown} />
+                      <StatCard title="ביצוע + שריון 2026" value={formatILS(budgetStats.expCommit26)} icon={TrendingUp} progress={budgetStats.expB26 > 0 ? Math.round((budgetStats.expCommit26 / budgetStats.expB26) * 100) : 0} />
+                      <StatCard title="ביצוע בפועל 2026" value={formatILS(budgetStats.expExec26)} icon={TrendingDown} progress={budgetStats.expB26 > 0 ? Math.round((budgetStats.expExec26 / budgetStats.expB26) * 100) : 0} />
                       <StatCard title="הכנסות (תקציב 2026)" value={formatILS(budgetStats.incB26)} />
-                      <StatCard title="הכנסות (ביצוע בפועל)" value={formatILS(budgetStats.incExec26)} />
+                      <StatCard title="הכנסות (ביצוע בפועל)" value={formatILS(budgetStats.incExec26)} progress={budgetStats.incB26 > 0 ? Math.round((budgetStats.incExec26 / budgetStats.incB26) * 100) : 0} />
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                       <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 min-h-[400px] flex flex-col">
-                        <div className="flex justify-between items-end mb-8"><h3 className="font-black text-slate-800 text-lg">פילוח תקציב הוצאות למחלקות (2026)</h3></div>
-                        <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-                          <BarChart data={budgetByDeptChart} margin={{ top: 0, right: 0, left: 0, bottom: 30 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b', fontWeight: 600 }} interval={0} tickMargin={14} />
-                            <YAxis hide />
-                            <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', fontWeight: 'bold' }} formatter={(v) => formatILS(v)} />
-                            <Bar dataKey="value" radius={[6, 6, 6, 6]} barSize={36}>{budgetByDeptChart.map((_, i) => (<Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />))}</Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
+                        <div className="flex justify-between items-end mb-6"><h3 className="font-black text-slate-800 text-lg">פילוח תקציב הוצאות למחלקות (2026)</h3></div>
+                        <div dir="ltr" style={{flex:1, minHeight: Math.max(300, budgetByDeptChart.length * 38)}}>
+                          <ResponsiveContainer width="100%" height="100%" minHeight={Math.max(300, budgetByDeptChart.length * 38)}>
+                            <BarChart layout="vertical" data={budgetByDeptChart} margin={{ top: 0, right: 70, left: 0, bottom: 0 }}>
+                              <XAxis type="number" hide />
+                              <YAxis dataKey="name" type="category" width={165} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }} tickFormatter={(v) => v.length > 20 ? v.slice(0, 19) + '…' : v} />
+                              <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', fontWeight: 'bold' }} formatter={(v) => formatILS(v)} />
+                              <Bar dataKey="value" radius={[0, 6, 6, 0]} barSize={22} label={{ position: 'right', fontSize: 10, fontWeight: 700, fill: '#64748b', formatter: (v) => formatILS(v) }}>
+                                {budgetByDeptChart.map((_, i) => (<Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />))}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
                       </div>
                       <div className="grid grid-rows-2 gap-6 h-full">
                          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-center relative">
@@ -1068,18 +1137,54 @@ const App = () => {
                             ) : (<span className="text-slate-300 font-bold text-sm">אין נתונים</span>)}
                          </div>
                          <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-center relative">
-                            <h3 className="font-bold text-slate-400 text-xs tracking-widest uppercase absolute top-5 right-6">ביצוע מול יתרה (הוצאות)</h3>
-                            {budgetExecutionPie.length > 0 ? (
-                               <div className="w-full h-full flex items-center justify-center mt-6">
-                                  <ResponsiveContainer width="100%" height={160}>
-                                    <PieChart><Pie data={budgetExecutionPie} dataKey="value" cx="50%" cy="50%" innerRadius={50} outerRadius={70} stroke="none" paddingAngle={5}><Cell fill="#cbd5e1" /><Cell fill="#0d9488" /></Pie><Tooltip formatter={(v) => formatILS(v)} contentStyle={{ borderRadius: '8px', border: 'none', fontSize: '12px', fontWeight: 'bold' }} /></PieChart>
+                            <h3 className="font-bold text-slate-400 text-xs tracking-widest uppercase absolute top-5 right-6">ביצוע הוצאות 2026</h3>
+                            {budgetStats.expB26 > 0 ? (() => {
+                              const pct = Math.min(Math.round((budgetStats.expExec26 / budgetStats.expB26) * 100), 100);
+                              const gaugeColor = pct > 90 ? '#ef4444' : pct > 70 ? '#f59e0b' : '#0d9488';
+                              return (
+                                <div className="relative flex flex-col items-center mt-2" style={{height: 130}}>
+                                  <ResponsiveContainer width={180} height={100}>
+                                    <PieChart>
+                                      <Pie data={[{ value: pct }, { value: 100 - pct }]} startAngle={180} endAngle={0} cx="50%" cy="100%" innerRadius={52} outerRadius={72} dataKey="value" stroke="none">
+                                        <Cell fill={gaugeColor} />
+                                        <Cell fill="#e2e8f0" />
+                                      </Pie>
+                                    </PieChart>
                                   </ResponsiveContainer>
-                                  <div className="absolute bottom-5 flex gap-4">{budgetExecutionPie.map((item, i) => (<div key={item.name} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500"><div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: i === 0 ? '#cbd5e1' : '#0d9488'}}></div> {i===0?'יתרה':'בוצע'}</div>))}</div>
-                               </div>
-                            ) : (<span className="text-slate-300 font-bold text-sm">אין נתונים</span>)}
+                                  <div className="text-center -mt-2">
+                                    <p className="text-3xl font-black" style={{ color: gaugeColor }}>{pct}%</p>
+                                    <p className="text-[10px] font-bold text-slate-400 mt-0.5">מהתקציב בוצע</p>
+                                    <p className="text-[10px] text-slate-400">{formatILS(budgetStats.expExec26)} מתוך {formatILS(budgetStats.expB26)}</p>
+                                  </div>
+                                </div>
+                              );
+                            })() : (<span className="text-slate-300 font-bold text-sm">אין נתונים</span>)}
                          </div>
                       </div>
                     </div>
+                    {top5Overages.length > 0 && (
+                      <div className="bg-white rounded-3xl border border-red-100 shadow-sm p-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-black text-slate-800 text-base flex items-center gap-2"><ShieldAlert size={18} className="text-red-500"/> 5 החריגות הגדולות</h3>
+                          <button onClick={() => setViewMode('control')} className="text-xs font-bold text-red-500 hover:text-red-700 transition-colors">לכל החריגות ←</button>
+                        </div>
+                        <div className="space-y-2">
+                          {top5Overages.map((r, i) => (
+                            <div key={r.id} className="flex items-center gap-3 p-3 bg-red-50/50 rounded-xl border border-red-100/50">
+                              <span className="w-6 h-6 rounded-full bg-red-100 text-red-600 text-[10px] font-black flex items-center justify-center shrink-0">{i + 1}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-black text-slate-800 truncate">{r.name}</p>
+                                <p className="text-[10px] text-slate-500 font-medium">{r.dept} · {r.type}</p>
+                              </div>
+                              <div className="text-left shrink-0">
+                                <p className="text-sm font-black text-red-600 tabular-nums" dir="ltr">{formatILS(Math.abs(r.balance))}</p>
+                                <p className="text-[10px] text-slate-400 font-medium">חריגה</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1097,6 +1202,13 @@ const App = () => {
                          {[ { k: 'a2024', l: 'ביצוע 24' }, { k: 'b2025', l: 'תקציב 25' }, { k: 'b2026', l: 'תקציב 26' }, { k: 'a2026', l: 'ביצוע 26' }, { k: 'commitTotal2026', l: 'שריון+ביצוע' } ].map((col) => (<button key={col.k} onClick={() => toggleBudgetColumn(col.k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${budgetVisibleColumns[col.k] ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{col.l}</button>))}
                        </div>
                     </div>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 py-1 text-xs font-bold text-slate-500">
+                      <span>מציג <span className="text-slate-800">{filteredBudgetData.length}</span> סעיפים</span>
+                      <span className="text-slate-200 hidden sm:inline">|</span>
+                      <span className="hidden sm:inline">הוצאות: <span className="text-orange-600">{formatILS(filteredBudgetData.filter(r => sameKey(r.type,'הוצאה')).reduce((s,r) => s + r.b2026, 0))}</span></span>
+                      <span className="text-slate-200 hidden sm:inline">|</span>
+                      <span className="hidden sm:inline">הכנסות: <span className="text-emerald-600">{formatILS(filteredBudgetData.filter(r => sameKey(r.type,'הכנסה')).reduce((s,r) => s + r.b2026, 0))}</span></span>
+                    </div>
                     <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                       <table className="w-full text-right">
                         <thead>
@@ -1105,13 +1217,25 @@ const App = () => {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {filteredBudgetData.map((row) => (
-                            <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
-                              <td className="py-3 px-5 text-[10px] font-mono text-slate-400 group-hover:text-slate-600 transition-colors">{row.id}</td><td className="py-3 px-5 text-sm font-black text-slate-800">{row.name}</td><td className="py-3 px-5 text-xs font-bold text-slate-500">{row.dept}</td>
+                          {filteredBudgetData.length === 0 ? (
+                            <tr><td colSpan={4 + visibleBudgetColumnDefs.length} className="py-20 text-center">
+                              <div className="flex flex-col items-center gap-3 text-slate-300">
+                                <Search size={36} strokeWidth={1.5} />
+                                <p className="font-black text-slate-400 text-base">לא נמצאו סעיפים</p>
+                                <p className="text-sm text-slate-400">נסה לשנות את פרמטרי החיפוש</p>
+                              </div>
+                            </td></tr>
+                          ) : filteredBudgetData.map((row) => {
+                            const rowBalance = row.b2026 - row.a2026;
+                            const rowIsRed = (sameKey(row.type,'הכנסה') && rowBalance > 0) || (sameKey(row.type,'הוצאה') && rowBalance < 0);
+                            return (
+                            <tr key={row.id} className={`transition-colors group ${rowIsRed ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/50'}`}>
+                              <td className="py-3 px-5 text-[10px] font-mono cursor-pointer select-none transition-colors" onClick={() => { navigator.clipboard.writeText(String(row.id)); setCopiedId(row.id); setTimeout(() => setCopiedId(null), 1500); }} title="לחץ להעתקה"><span className={copiedId === row.id ? 'text-emerald-600 font-bold' : 'text-slate-400 group-hover:text-slate-600'}>{copiedId === row.id ? '✓ הועתק' : row.id}</span></td><td className="py-3 px-5 text-sm font-black text-slate-800">{row.name}</td><td className="py-3 px-5 text-xs font-bold text-slate-500">{row.dept}</td>
                               <td className="py-3 px-5 text-center"><span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold ${sameKey(row.type, 'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{row.type}</span></td>
                               {visibleBudgetColumnDefs.map((col) => (<td key={col.key} className="py-3 px-5 text-sm font-bold text-slate-700 text-left tabular-nums">{formatILS(col.value(row))}</td>))}
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -1198,7 +1322,19 @@ const App = () => {
               <div className="space-y-6">
                 <div className="flex bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/50 w-full max-w-2xl mx-auto mb-6">
                    {viewMode === 'dashboard' && ( <button onClick={() => setWorkplanQuarter(0)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === 0 ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>שנתי</button> )}
-                   {[1, 2, 3, 4].map(q => ( <button key={q} onClick={() => setWorkplanQuarter(q)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${workplanQuarter === q ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>רבעון {q}</button> ))}
+                   {[1, 2, 3, 4].map(q => {
+                     const currentQ = Math.ceil((new Date().getMonth() + 1) / 3);
+                     const isCurrent = q === currentQ;
+                     const qEndMonth = q * 3;
+                     const qEnd = new Date(new Date().getFullYear(), qEndMonth, 0);
+                     const daysLeft = isCurrent ? Math.max(0, Math.ceil((qEnd - new Date()) / 86400000)) : null;
+                     return (
+                       <button key={q} onClick={() => setWorkplanQuarter(q)} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all flex flex-col items-center leading-tight ${workplanQuarter === q ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
+                         <span>רבעון {q}</span>
+                         {isCurrent && <span className={`text-[9px] font-bold mt-0.5 ${workplanQuarter === q ? 'text-blue-400' : 'text-orange-400'}`}>עוד {daysLeft} ימים</span>}
+                       </button>
+                     );
+                   })}
                 </div>
 
                 {viewMode === 'dashboard' && (currentUser.role === 'ADMIN' || currentUser.role === 'WING') && (
@@ -1225,10 +1361,10 @@ const App = () => {
                         </div>
                         <p className="text-3xl font-black">{workStats.overdue}</p>
                       </div>
-                      <StatCard title="בוצע" value={`${workStats.p1}%`} subtext={`${workStats.s1} משימות`} icon={CheckCircle2} />
-                      <StatCard title="בעיכוב" value={`${workStats.p2}%`} subtext={`${workStats.s2} משימות`} icon={Clock} />
-                      <StatCard title="בהקפאה" value={`${workStats.p3}%`} subtext={`${workStats.s3} משימות`} icon={MinusCircle} />
-                      <StatCard title="ממתין" value={workStats.s4} subtext={`מתוך ${workStats.total}`} icon={HelpCircle} />
+                      <div className="cursor-pointer" onClick={() => { setFilterStatus(1); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בוצע" value={`${workStats.p1}%`} subtext={`${workStats.s1} משימות — לחץ לסינון`} icon={CheckCircle2} /></div>
+                      <div className="cursor-pointer" onClick={() => { setFilterStatus(2); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בעיכוב" value={`${workStats.p2}%`} subtext={`${workStats.s2} משימות — לחץ לסינון`} icon={Clock} /></div>
+                      <div className="cursor-pointer" onClick={() => { setFilterStatus(3); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בהקפאה" value={`${workStats.p3}%`} subtext={`${workStats.s3} משימות — לחץ לסינון`} icon={MinusCircle} /></div>
+                      <div className="cursor-pointer" onClick={() => { setFilterStatus(4); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="ממתין" value={workStats.s4} subtext={`מתוך ${workStats.total} — לחץ לסינון`} icon={HelpCircle} /></div>
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1246,14 +1382,16 @@ const App = () => {
                        </div>
                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[350px]">
                           <h3 className="font-black text-slate-800 mb-6 text-sm">עומס משימות לפי {activeWingId ? 'מחלקה' : 'אגף'}</h3>
-                          <ResponsiveContainer width="100%" height={260}>
-                             <BarChart layout="vertical" data={Array.from(new Set(filteredWorkData.map((t) => (activeWingId ? t.dept : t.wing)))).map((name) => ({ n: name, v: filteredWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length }))} margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="n" type="category" width={100} axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }} />
-                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.05)'}} />
-                                <Bar dataKey="v" fill="#3b82f6" radius={[4, 4, 4, 4]} barSize={14} />
-                             </BarChart>
-                          </ResponsiveContainer>
+                          <div dir="ltr">
+                            <ResponsiveContainer width="100%" height={260}>
+                               <BarChart layout="vertical" data={Array.from(new Set(filteredWorkData.map((t) => (activeWingId ? t.dept : t.wing)))).map((name) => ({ n: name, v: filteredWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length }))} margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
+                                  <XAxis type="number" hide />
+                                  <YAxis dataKey="n" type="category" width={140} axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }} tickFormatter={(v) => v.length > 16 ? v.slice(0, 15) + '…' : v} />
+                                  <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.05)'}} />
+                                  <Bar dataKey="v" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={14} label={{ position: 'right', fontSize: 10, fontWeight: 700, fill: '#64748b' }} />
+                               </BarChart>
+                            </ResponsiveContainer>
+                          </div>
                        </div>
                     </div>
                   </>
@@ -1275,9 +1413,24 @@ const App = () => {
                           <button onClick={() => setShowOnlyOverdueTasks(!showOnlyOverdueTasks)} className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${showOnlyOverdueTasks ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
                              <AlertTriangle size={14}/> {showOnlyOverdueTasks ? 'הסר סינון חריגות' : 'הצג חריגות בלבד'}
                           </button>
+                          {filterStatus !== null && (
+                            <button onClick={() => setFilterStatus(null)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 border bg-blue-50 border-blue-200 text-blue-600 transition-all hover:bg-blue-100">
+                              <X size={14}/> {STATUS_CONFIG[filterStatus]?.label} בלבד — הסר
+                            </button>
+                          )}
                        </div>
                     </div>
 
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 py-1 text-xs font-bold text-slate-500">
+                      <span>מציג <span className="text-slate-800">{sortedWorkData.length}</span> משימות</span>
+                      <span className="text-slate-200 hidden sm:inline">|</span>
+                      <span className="hidden sm:inline text-emerald-600">{workStats.s1} בוצע</span>
+                      <span className="text-slate-200 hidden sm:inline">|</span>
+                      <span className="hidden sm:inline text-amber-500">{workStats.s2} עיכוב</span>
+                      <span className="text-slate-200 hidden sm:inline">|</span>
+                      <span className="hidden sm:inline text-red-500">{workStats.s3} עצירה</span>
+                      {workStats.overdue > 0 && <><span className="text-slate-200 hidden sm:inline">|</span><span className="hidden sm:inline text-red-600 font-black">{workStats.overdue} בחריגת תאריך</span></>}
+                    </div>
                     <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-32">
                        <table className="w-full text-right relative">
                           <thead>
@@ -1293,14 +1446,22 @@ const App = () => {
                              </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                             {sortedWorkData.map(t => {
+                             {sortedWorkData.length === 0 ? (
+                               <tr><td colSpan={6} className="py-20 text-center">
+                                 <div className="flex flex-col items-center gap-3 text-slate-300">
+                                   <Target size={36} strokeWidth={1.5} />
+                                   <p className="font-black text-slate-400 text-base">לא נמצאו משימות</p>
+                                   <p className="text-sm text-slate-400">נסה לשנות את פרמטרי החיפוש</p>
+                                 </div>
+                               </td></tr>
+                             ) : sortedWorkData.map(t => {
                                 const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
                                 const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                                 const currentStatus = t[`q${workplanQuarter}`];
                                 const isOverdue = isTaskOverdue(t, workplanQuarter);
                                 
                                 return (
-                                   <tr key={t.id} className="hover:bg-slate-50/40 transition-colors group">
+                                   <tr key={t.id} className={`transition-colors group border-r-4 ${currentStatus ? `${STATUS_CONFIG[currentStatus].bg} hover:brightness-95` : 'hover:bg-slate-50/40 border-transparent'}`} style={{ borderRightColor: currentStatus ? STATUS_CONFIG[currentStatus].color : 'transparent' }}>
                                       <td className="py-4 px-5 text-[10px] font-mono text-slate-400">{t.id}</td>
                                       <td className="py-4 px-5 text-xs font-bold text-slate-600">{t.dept}</td>
                                       <td className="py-4 px-5">
@@ -1333,32 +1494,44 @@ const App = () => {
                           const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                           const currentStatus = t[`q${workplanQuarter}`];
                           const isOverdue = isTaskOverdue(t, workplanQuarter);
+                          const isExpanded = expandedCards.has(t.id);
+                          const toggleExpand = () => setExpandedCards(prev => { const next = new Set(prev); next.has(t.id) ? next.delete(t.id) : next.add(t.id); return next; });
 
                           return (
-                             <div key={t.id} className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] p-5 relative overflow-visible">
-                                <div className="flex justify-between items-start mb-3">
-                                   <div className="bg-slate-100 px-2 py-0.5 rounded text-[9px] font-mono text-slate-500">#{t.id}</div>
-                                   <div className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded">{t.dept}</div>
-                                </div>
-                                {t.activity && <div className="text-[10px] font-bold text-blue-600 mb-1">{t.activity}</div>}
-                                <h4 className="font-black text-slate-800 text-sm leading-snug mb-3 pr-1">{t.task}</h4>
-                                <div className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-md mb-4 ${isOverdue ? 'text-red-600 bg-red-50' : 'text-slate-500 bg-slate-50'}`}><Clock size={12} /> יעד לביצוע: {formatDate(t.deadline)}</div>
-                                <div className="bg-slate-50 rounded-2xl p-4 space-y-4 border border-slate-100/50">
-                                   <div className="grid grid-cols-2 gap-4 items-center">
-                                      <div>
-                                         <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">סטטוס קודם</p>
-                                         {latestPrev ? (<div className="inline-flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${STATUS_CONFIG[latestPrev].bg.replace('bg-', 'bg-').replace('50', '400')}`}></div><span className="text-[11px] font-bold text-slate-600">{STATUS_CONFIG[latestPrev].label}</span></div>) : <span className="text-[11px] text-slate-400 font-medium">אין מידע</span>}
+                             <div key={t.id} className={`rounded-3xl border shadow-[0_2px_15px_-5px_rgba(0,0,0,0.05)] overflow-hidden transition-all ${currentStatus ? STATUS_CONFIG[currentStatus].bg : 'bg-white'} ${currentStatus ? STATUS_CONFIG[currentStatus].border : 'border-slate-100'}`}>
+                                {/* כותרת — תמיד מוצגת */}
+                                <button onClick={toggleExpand} className="w-full p-4 text-right flex items-center gap-3">
+                                   <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        {currentStatus && <div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor: STATUS_CONFIG[currentStatus].color}}/>}
+                                        <span className="text-[9px] font-bold text-slate-400 bg-white/60 px-1.5 py-0.5 rounded font-mono">{t.dept}</span>
+                                        {isOverdue && <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">בחריגה</span>}
+                                      </div>
+                                      <h4 className="font-black text-slate-800 text-sm leading-snug">{t.task}</h4>
+                                   </div>
+                                   <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {/* פרטים — מוצגים רק כשפתוח */}
+                                {isExpanded && (
+                                   <div className="px-4 pb-4 space-y-3 border-t border-black/5 pt-3">
+                                      <div className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-md ${isOverdue ? 'text-red-600 bg-red-50' : 'text-slate-500 bg-white/70'}`}><Clock size={12} /> יעד: {formatDate(t.deadline)}</div>
+                                      <div className="grid grid-cols-2 gap-3 items-start">
+                                         <div>
+                                            <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">סטטוס קודם</p>
+                                            {latestPrev ? (<div className="inline-flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-400"></div><span className="text-[11px] font-bold text-slate-600">{STATUS_CONFIG[latestPrev].label}</span></div>) : <span className="text-[11px] text-slate-400">אין מידע</span>}
+                                         </div>
+                                         <div>
+                                            <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון ר{workplanQuarter}</p>
+                                            <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                         </div>
                                       </div>
                                       <div>
-                                         <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון עכשיו (ר{workplanQuarter})</p>
-                                         <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                         <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות</p>
+                                         <textarea rows={2} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white/80 border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none" />
                                       </div>
                                    </div>
-                                   <div className="relative pt-2 border-t border-slate-200/60">
-                                      <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות לחמ"ל</p>
-                                      <textarea rows={1} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none overflow-hidden" />
-                                   </div>
-                                </div>
+                                )}
                              </div>
                           );
                        })}
@@ -1370,6 +1543,52 @@ const App = () => {
           </div>
         </main>
       </div>
+
+      {/* Toast Notification */}
+      <div className={`fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[2100] transition-all duration-300 ${saveStatus ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
+        {saveStatus === 'saving' && (
+          <div className="flex items-center gap-3 bg-slate-800 text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold">
+            <Loader2 size={16} className="animate-spin text-blue-400" /> שומר שינויים...
+          </div>
+        )}
+        {saveStatus === 'saved' && (
+          <div className="flex items-center gap-3 bg-emerald-700 text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold">
+            <CheckCircle2 size={16} /> הנתונים נשמרו בהצלחה
+          </div>
+        )}
+        {saveStatus === 'error' && (
+          <div className="flex items-center gap-3 bg-red-600 text-white px-5 py-3 rounded-2xl shadow-xl text-sm font-bold">
+            <AlertTriangle size={16} /> שגיאה בשמירה — ננסה שוב
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Navigation - Mobile Only */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-[700] bg-white/90 backdrop-blur-md border-t border-slate-200 shadow-[0_-4px_20px_-8px_rgba(0,0,0,0.1)]">
+        <div className="flex">
+          <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'budget' && viewMode !== 'control' ? 'text-emerald-700' : 'text-slate-400'}`}>
+            <Wallet size={20} strokeWidth={2} />
+            <span>תקציב</span>
+          </button>
+          <button onClick={() => { setMainTab('budget'); setViewMode('control'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors relative ${mainTab === 'budget' && viewMode === 'control' ? 'text-red-600' : 'text-slate-400'}`}>
+            <ShieldAlert size={20} strokeWidth={2} />
+            <span>בקרה</span>
+            {budgetAlertsCount > 0 && (
+              <span className="absolute top-2 right-[calc(50%-18px)] bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{budgetAlertsCount > 99 ? '99+' : budgetAlertsCount}</span>
+            )}
+          </button>
+          <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'workplan' ? 'text-blue-600' : 'text-slate-400'}`}>
+            <Target size={20} strokeWidth={2} />
+            <span>משימות</span>
+          </button>
+          {isAharony && (
+            <button onClick={async () => { setMainTab('users'); await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
+              <Users size={20} strokeWidth={2} />
+              <span>משתמשים</span>
+            </button>
+          )}
+        </div>
+      </nav>
     </div>
   );
 };
