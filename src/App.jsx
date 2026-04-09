@@ -365,6 +365,7 @@ const App = () => {
       setExecutionMap(map);
     } catch (e) {
       console.error("loadData error:", e);
+      alert('שגיאה בטעינת הנתונים. אנא בדוק את החיבור לאינטרנט ונסה שוב.');
     } finally {
       setLoading(false);
     }
@@ -424,7 +425,7 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        setUserForm({ username: '', password: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
+        setUserForm({ username: '', password: '', email: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
         alert('המשתמש נוסף בהצלחה');
       } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
     } catch (err) { alert(`שגיאה: ${err.message || ''}`); }
@@ -772,7 +773,7 @@ const App = () => {
           
           {/* ----- תוספת הלוגו של המועצה ----- */}
           <div className="flex items-center border-l border-slate-200 pl-4 ml-1">
-            <img src="/logo.png" alt="מועצת עומר" className="h-14 lg:h-30 object-contain drop-shadow-sm" />
+            <img src="/logo.png" alt="מועצת עומר" className="h-14 lg:h-32 object-contain drop-shadow-sm" />
           </div>
           {/* ---------------------------------- */}
 
@@ -1023,7 +1024,6 @@ const App = () => {
                         </div>
                       );
                     })}
-                    ))}
                   </div>
                 )}
               </div>
