@@ -1507,6 +1507,7 @@ const App = () => {
                                         <span className="text-[9px] font-bold text-slate-400 bg-white/60 px-1.5 py-0.5 rounded font-mono">{t.dept}</span>
                                         {isOverdue && <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">בחריגה</span>}
                                       </div>
+                                      {t.activity && <p className="text-[10px] font-bold text-blue-600 mb-0.5 leading-snug">{t.activity}</p>}
                                       <h4 className="font-black text-slate-800 text-sm leading-snug">{t.task}</h4>
                                    </div>
                                    <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
