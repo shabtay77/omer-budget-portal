@@ -14,6 +14,7 @@ const SHEETS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2Y4QkJxnqapKne4Q5TSAC5ZVBE1oPjKYKRKE1MFqiDfxSBZdWJQgbFnJbKz_H98q6WvS6NtKKjHM2/pub?output=csv";
 const GAS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzPjDK_Enpt5dqW_soJrxs9y6fU5-cKMqsKzNJNouXvNxGnI8Xrxl9nGL51mG3smACV2A/exec";
+const CACHE_KEY = 'omer_portal_v1';
 
 const ICONS = {
   'ראש הרשות': UserRound,
@@ -307,6 +308,13 @@ const App = () => {
     }
   }, [mainTab, viewMode]);
 
+  // Warm-up: מעיר את GAS כשהמשתמש בדף הלוגין כדי לחסוך cold start
+  useEffect(() => {
+    if (!isLoggedIn) {
+      fetch(`${GAS_SCRIPT_URL}?action=warmup`).catch(() => {});
+    }
+  }, []);
+
   // מנגנון שמירה אוטומטית (Auto-Save)
   useEffect(() => {
     if (pendingChanges.length === 0) return;
@@ -336,52 +344,74 @@ const App = () => {
     return () => clearTimeout(timer);
   }, [pendingChanges]);
 
+  const applyData = (bJson, wJson, liveData, csvText) => {
+    const staticParsed = (bJson || []).map(b => ({
+      ...b, wing: cleanStr(b.wing), dept: cleanStr(b.dept), name: cleanStr(b.name), type: cleanStr(b.type)
+    }));
+    const workPlansParsed = (wJson || []).map((t) => {
+      const live = liveData?.[String(t.id)] || {};
+      return {
+        ...t, wing: cleanStr(t.wing), dept: cleanStr(t.dept), activity: cleanStr(t.activity), task: cleanStr(t.task),
+        q1: live.q1 ?? t.q1, q2: live.q2 ?? t.q2, q3: live.q3 ?? t.q3, q4: live.q4 ?? t.q4,
+        n1: live.n1 || "", n2: live.n2 || "", n3: live.n3 || "", n4: live.n4 || ""
+      };
+    });
+    const rows = csvText.trim().split(/\r?\n/).map(parseCsvLine);
+    const headers = (rows[0] || []).map((h) => h.trim().toLowerCase());
+    const map = {};
+    const idIdx = headers.findIndex((h) => h.includes('id'));
+    const a26Idx = headers.findIndex((h) => h.includes('a2026') || h.includes('ביצוע'));
+    const c26Idx = headers.findIndex((h) => h.includes('commit') || h.includes('שריון'));
+    rows.slice(1).forEach((cols) => {
+      if (cols[idIdx]) {
+        const normalizedId = String(cols[idIdx]).trim().split('.')[0];
+        map[normalizedId] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
+      }
+    });
+    return { staticParsed, workPlansParsed, execMap: map };
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [bRes, wRes, gasRes] = await Promise.all([
+      // טעינה מהקאש מיד — הממשק עולה אינסטנט
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const { staticParsed, workPlansParsed, execMap } = JSON.parse(cached);
+          setStaticData(staticParsed);
+          setWorkPlans(workPlansParsed);
+          setExecutionMap(execMap);
+          setLoading(false); // הסרנו את מסך הטעינה מיד
+        } catch (_) {}
+      }
+
+      // כל 4 הבקשות במקביל
+      const [bRes, wRes, gasRes, csvRes] = await Promise.all([
         fetch('/budget_data.json').then((res) => ensureOk(res, 'Budget data')),
         fetch('/workplans_data.json').then((res) => ensureOk(res, 'Workplans data')),
-        fetch(`${GAS_SCRIPT_URL}?t=${Date.now()}`).then((res) => ensureOk(res, 'Live GAS data'))
+        fetch(`${GAS_SCRIPT_URL}?t=${Date.now()}`).then((res) => ensureOk(res, 'Live GAS data')),
+        fetch(`${SHEETS_CSV_URL}&t=${Date.now()}`).then((res) => ensureOk(res, 'Sheets CSV'))
       ]);
 
-      const [bJson, wJson, liveData] = await Promise.all([bRes.json(), wRes.json(), gasRes.json()]);
+      const [bJson, wJson, liveData, csvText] = await Promise.all([
+        bRes.json(), wRes.json(), gasRes.json(), csvRes.text()
+      ]);
 
-      setStaticData((bJson || []).map(b => ({
-        ...b, wing: cleanStr(b.wing), dept: cleanStr(b.dept), name: cleanStr(b.name), type: cleanStr(b.type)
-      })));
+      const { staticParsed, workPlansParsed, execMap } = applyData(bJson, wJson, liveData, csvText);
+      setStaticData(staticParsed);
+      setWorkPlans(workPlansParsed);
+      setExecutionMap(execMap);
 
-      setWorkPlans(
-        (wJson || []).map((t) => {
-          const live = liveData?.[String(t.id)] || {};
-          return {
-            ...t, wing: cleanStr(t.wing), dept: cleanStr(t.dept), activity: cleanStr(t.activity), task: cleanStr(t.task),
-            q1: live.q1 ?? t.q1, q2: live.q2 ?? t.q2, q3: live.q3 ?? t.q3, q4: live.q4 ?? t.q4,
-            n1: live.n1 || "", n2: live.n2 || "", n3: live.n3 || "", n4: live.n4 || ""
-          };
-        })
-      );
-
-      const csvRes = await fetch(`${SHEETS_CSV_URL}&t=${Date.now()}`).then((res) => ensureOk(res, 'Sheets CSV'));
-      const csvText = await csvRes.text();
-      const rows = csvText.trim().split(/\r?\n/).map(parseCsvLine);
-      const headers = (rows[0] || []).map((h) => h.trim().toLowerCase());
-      const map = {};
-      const idIdx = headers.findIndex((h) => h.includes('id'));
-      const a26Idx = headers.findIndex((h) => h.includes('a2026') || h.includes('ביצוע'));
-      const c26Idx = headers.findIndex((h) => h.includes('commit') || h.includes('שריון'));
-
-      rows.slice(1).forEach((cols) => {
-        if (cols[idIdx]) {
-          // מנקה את ה-ID ממצבים של 101.0
-          const normalizedId = String(cols[idIdx]).trim().split('.')[0];
-          map[normalizedId] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
-        }
-      });
-      setExecutionMap(map);
+      // שמירה לקאש לכניסה הבאה
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ staticParsed, workPlansParsed, execMap }));
+      } catch (_) {}
     } catch (e) {
       console.error("loadData error:", e);
-      alert('שגיאה בטעינת הנתונים. אנא בדוק את החיבור לאינטרנט ונסה שוב.');
+      if (!localStorage.getItem(CACHE_KEY)) {
+        alert('שגיאה בטעינת הנתונים. אנא בדוק את החיבור לאינטרנט ונסה שוב.');
+      }
     } finally {
       setLoading(false);
     }
