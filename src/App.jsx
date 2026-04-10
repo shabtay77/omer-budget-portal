@@ -350,10 +350,15 @@ const App = () => {
     } catch (_) {}
   }, [mainTab, viewMode, isLoggedIn]);
 
+  // ניקוי סינונים בעת החלפת טאב — כולל filterStatus
   useEffect(() => {
     setShowOnlyBudgetAlerts(false);
     setShowOnlyOverdueTasks(false);
     setFilterStatus(null);
+  }, [mainTab]);
+
+  // ניקוי חיפוש ומיון בעת החלפת טאב או תצוגה
+  useEffect(() => {
     setSearch('');
     setBudgetSearch('');
     setFilterDept('הכל');
@@ -535,6 +540,7 @@ const App = () => {
         setViewMode('dashboard');
         setHasSeenBudgetPopup(false);
         setHasSeenWorkplanPopup(false);
+        setWorkplanQuarter(0);
         if (data.user.role === 'WING') setActiveWingId(cleanStr(data.user.target1) || null);
         else setActiveWingId(null);
         await loadData();
@@ -552,6 +558,7 @@ const App = () => {
     localStorage.removeItem(SESSION_KEY);
     setIsLoggedIn(false);
     setCurrentUser(null);
+    setWorkplanQuarter(0);
     setUInput('');
     setPInput('');
   };
@@ -632,7 +639,8 @@ const App = () => {
   };
 
   useEffect(() => {
-    if (!loading && mainTab === 'workplan' && viewMode === 'table' && !hasSeenWorkplanPopup) {
+    // לא מציג popup חריגות אם המשתמש כבר בחר סינון אחר
+    if (!loading && mainTab === 'workplan' && viewMode === 'table' && !hasSeenWorkplanPopup && filterStatus === null && !showOnlyOverdueTasks) {
       const overdue = workPlans.filter((t) => {
         if (currentUser?.role === 'WING' && !matchesUserTargets(t.wing, currentUser)) return false;
         if (currentUser?.role === 'DEPT' && !matchesUserTargets(t.dept, currentUser)) return false;
@@ -641,7 +649,7 @@ const App = () => {
       }).length;
       if (overdue > 0) { setPopupCount(overdue); setActivePopup('workplan'); setHasSeenWorkplanPopup(true); }
     }
-  }, [loading, mainTab, viewMode, activeWingId, workPlans, hasSeenWorkplanPopup, currentUser, workplanQuarter]);
+  }, [loading, mainTab, viewMode, activeWingId, workPlans, hasSeenWorkplanPopup, currentUser, workplanQuarter, filterStatus, showOnlyOverdueTasks]);
 
     const fullBudgetData = useMemo(() => {
     let data = staticData;
@@ -1313,7 +1321,7 @@ const App = () => {
                 <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
                   <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
                 </button>
-                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan') setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan' && workplanQuarter === 0) setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
                   <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
                   {mainTab === 'workplan' && overdueTasksCount > 0 && (
                     <span className="mr-auto bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{overdueTasksCount}</span>
@@ -1817,22 +1825,64 @@ const App = () => {
                 {viewMode === 'dashboard' ? (
                   <>
                     <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 lg:gap-4 mb-6">
-                      <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-lg shadow-slate-900/10 flex flex-col justify-center text-center">
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">סה"כ</p>
+                      <div
+                        className={`p-5 rounded-2xl shadow-lg flex flex-col justify-center text-center cursor-pointer transition-all ${filterStatus === null && !showOnlyOverdueTasks ? 'bg-slate-900 text-white shadow-slate-900/10' : 'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}
+                        onClick={() => { setFilterStatus(null); setShowOnlyOverdueTasks(false); }}
+                        title="הצג הכל — נקה סינון"
+                      >
+                        <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${filterStatus === null && !showOnlyOverdueTasks ? 'text-slate-400' : 'text-slate-400'}`}>סה"כ</p>
                         <p className="text-3xl font-black">{workStats.total}</p>
+                        <p className={`text-[9px] font-bold mt-1 ${filterStatus === null && !showOnlyOverdueTasks ? 'text-slate-400' : 'text-slate-400'}`}>{filterStatus !== null || showOnlyOverdueTasks ? 'לחץ לנקות סינון' : 'כל המשימות'}</p>
                       </div>
-                      <div className="bg-red-50 text-red-700 p-5 rounded-2xl border border-red-100 flex flex-col justify-center text-center shadow-sm cursor-pointer hover:bg-red-100 transition-colors" onClick={() => { setViewMode('table'); setShowOnlyOverdueTasks(true); }}>
+                      <div
+                        className={`p-5 rounded-2xl border flex flex-col justify-center text-center shadow-sm cursor-pointer transition-all ${showOnlyOverdueTasks ? 'bg-red-600 text-white border-red-600 ring-2 ring-red-400 ring-offset-2' : 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100'}`}
+                        onClick={() => setShowOnlyOverdueTasks(p => !p)}
+                      >
                         <div className="flex justify-center items-center gap-1.5 mb-1">
-                          <AlertTriangle size={14} className="text-red-500" />
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">בחריגה</p>
+                          <AlertTriangle size={14} className={showOnlyOverdueTasks ? 'text-red-200' : 'text-red-500'} />
+                          <p className={`text-[10px] font-bold uppercase tracking-widest ${showOnlyOverdueTasks ? 'text-red-200' : 'text-red-600'}`}>בחריגה</p>
                         </div>
                         <p className="text-3xl font-black">{workStats.overdue}</p>
+                        <p className={`text-[9px] font-bold mt-1 ${showOnlyOverdueTasks ? 'text-red-200' : 'text-red-400'}`}>{showOnlyOverdueTasks ? 'סינון פעיל — לחץ לביטול' : 'לחץ לסינון'}</p>
                       </div>
-                      <div className="cursor-pointer" onClick={() => { setFilterStatus(1); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בוצע" value={`${workStats.p1}%`} subtext={`${workStats.s1} משימות — לחץ לסינון`} icon={CheckCircle2} /></div>
-                      <div className="cursor-pointer" onClick={() => { setFilterStatus(2); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בעיכוב" value={`${workStats.p2}%`} subtext={`${workStats.s2} משימות — לחץ לסינון`} icon={Clock} /></div>
-                      <div className="cursor-pointer" onClick={() => { setFilterStatus(3); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="בהקפאה" value={`${workStats.p3}%`} subtext={`${workStats.s3} משימות — לחץ לסינון`} icon={MinusCircle} /></div>
-                      <div className="cursor-pointer" onClick={() => { setFilterStatus(4); setViewMode('table'); setShowQuarterPicker(true); }}><StatCard title="ממתין" value={workStats.s4} subtext={`מתוך ${workStats.total} — לחץ לסינון`} icon={HelpCircle} /></div>
+                      {[
+                        { s: 1, title: 'בוצע',    icon: CheckCircle2, val: `${workStats.p1}%`, count: workStats.s1,  ring: 'ring-emerald-400' },
+                        { s: 2, title: 'בעיכוב',  icon: Clock,        val: `${workStats.p2}%`, count: workStats.s2,  ring: 'ring-amber-400'   },
+                        { s: 3, title: 'בהקפאה',  icon: MinusCircle,  val: `${workStats.p3}%`, count: workStats.s3,  ring: 'ring-red-400'     },
+                        { s: 4, title: 'ממתין',   icon: HelpCircle,   val: workStats.s4,       count: workStats.s4,  ring: 'ring-slate-400'   },
+                      ].map(({ s, title, icon, val, count, ring }) => (
+                        <div
+                          key={s}
+                          className={`cursor-pointer transition-all rounded-2xl ${filterStatus === s ? `ring-2 ${ring} ring-offset-2 shadow-lg scale-[1.02]` : 'hover:scale-[1.02]'}`}
+                          onClick={() => setFilterStatus(filterStatus === s ? null : s)}
+                        >
+                          <StatCard
+                            title={title}
+                            value={val}
+                            subtext={filterStatus === s ? 'סינון פעיל — לחץ לביטול' : `${count} משימות — לחץ לסינון`}
+                            icon={icon}
+                          />
+                        </div>
+                      ))}
                     </div>
+
+                    {(filterStatus !== null || showOnlyOverdueTasks) && (
+                      <div className="flex items-center gap-2 mb-2 px-1">
+                        <span className="text-[11px] font-bold text-slate-500">הדאשבורד מציג:</span>
+                        {filterStatus !== null && (
+                          <span className={`flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full ${STATUS_CONFIG[filterStatus].bg} ${STATUS_CONFIG[filterStatus].text} border ${STATUS_CONFIG[filterStatus].border}`}>
+                            {STATUS_CONFIG[filterStatus].label} בלבד
+                            <button onClick={() => setFilterStatus(null)}><X size={11} /></button>
+                          </span>
+                        )}
+                        {showOnlyOverdueTasks && (
+                          <span className="flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
+                            חריגות בלבד
+                            <button onClick={() => setShowOnlyOverdueTasks(false)}><X size={11} /></button>
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 min-h-[350px]">
@@ -1880,14 +1930,36 @@ const App = () => {
                             </div>
                             {showOnlyOverdueTasks && <p className="text-[9px] text-slate-400 font-bold mt-0.5 pr-1">מושבת בזמן סינון חריגות</p>}
                           </div>
-                          <button onClick={() => setShowOnlyOverdueTasks(!showOnlyOverdueTasks)} className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${showOnlyOverdueTasks ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
-                             <AlertTriangle size={14}/> {showOnlyOverdueTasks ? 'הסר סינון חריגות' : 'הצג חריגות בלבד'}
+                          <button onClick={() => setShowOnlyOverdueTasks(!showOnlyOverdueTasks)} className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${showOnlyOverdueTasks ? 'bg-red-500 text-white border-red-500' : 'bg-slate-50 border-red-200 text-red-600 hover:bg-red-50'}`}>
+                             <AlertTriangle size={13}/> {showOnlyOverdueTasks ? <><span>חריגות</span><X size={12} className="mr-1"/></> : 'חריגות'}
                           </button>
-                          {filterStatus !== null && (
-                            <button onClick={() => setFilterStatus(null)} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 border bg-blue-50 border-blue-200 text-blue-600 transition-all hover:bg-blue-100">
-                              <X size={14}/> {STATUS_CONFIG[filterStatus]?.label} בלבד — הסר
+                          <button onClick={() => { setFilterStatus(null); setShowOnlyOverdueTasks(false); }}
+                            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${
+                              filterStatus === null && !showOnlyOverdueTasks
+                                ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                            }`}
+                          >
+                            הכל
+                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${filterStatus === null && !showOnlyOverdueTasks ? 'bg-white/20' : 'bg-slate-200 text-slate-500'}`}>
+                              {workStats.total}
+                            </span>
+                          </button>
+                          {[1,2,3,4].map(s => (
+                            <button key={s} onClick={() => setFilterStatus(filterStatus === s ? null : s)}
+                              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${
+                                filterStatus === s
+                                  ? `${STATUS_CONFIG[s].bg} ${STATUS_CONFIG[s].text} ${STATUS_CONFIG[s].border} shadow-sm`
+                                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                              }`}
+                            >
+                              {STATUS_CONFIG[s].label}
+                              <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${filterStatus === s ? 'bg-white/50' : 'bg-slate-200 text-slate-500'}`}>
+                                {[workStats.s1, workStats.s2, workStats.s3, workStats.s4][s-1]}
+                              </span>
+                              {filterStatus === s && <X size={11} className="mr-0.5 opacity-70"/>}
                             </button>
-                          )}
+                          ))}
                        </div>
                     </div>
 
@@ -2274,7 +2346,7 @@ const App = () => {
               <span className="absolute top-2 right-[calc(50%-18px)] bg-orange-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{overdueTasksCount > 99 ? '99+' : overdueTasksCount}</span>
             )}
           </button>
-          <button onClick={() => { setMainTab('workplan'); setViewMode('table'); setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'table' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <button onClick={() => { setMainTab('workplan'); setViewMode('table'); if (workplanQuarter === 0) setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'table' ? 'text-blue-600' : 'text-slate-400'}`}>
             <ClipboardList size={20} strokeWidth={2} />
             <span>עדכון משימות</span>
           </button>
