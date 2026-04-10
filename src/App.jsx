@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
 } from 'recharts';
@@ -7,14 +8,14 @@ import {
   Megaphone, TableProperties, ShieldAlert, CheckCircle2, Clock, AlertTriangle,
   HelpCircle, Save, Menu, X, Loader2, MessageSquare, History, MinusCircle,
   Download, ChevronDown, Filter, Search, TrendingUp, TrendingDown,
-  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw
+  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward
 } from 'lucide-react';
 
 const SHEETS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ2Y4QkJxnqapKne4Q5TSAC5ZVBE1oPjKYKRKE1MFqiDfxSBZdWJQgbFnJbKz_H98q6WvS6NtKKjHM2/pub?output=csv";
 const GAS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzPjDK_Enpt5dqW_soJrxs9y6fU5-cKMqsKzNJNouXvNxGnI8Xrxl9nGL51mG3smACV2A/exec";
-const CACHE_KEY = 'omer_portal_v1';
+const CACHE_KEY = 'omer_portal_v3';
 
 const ICONS = {
   'ראש הרשות': UserRound,
@@ -278,10 +279,24 @@ const App = () => {
   const [usersList, setUsersList] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   // שים לב שהוספתי את ה-email: ''
-  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
+  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE' });
   const [openStatusMenuId, setOpenStatusMenuId] = useState(null);
 
+  // Upload wizard state
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadStep, setUploadStep] = useState('drop'); // drop | unknowns-warning | unknowns-review | uploading | done
+  const [uploadRows, setUploadRows] = useState([]);        // all parsed rows from file
+  const [uploadUnknowns, setUploadUnknowns] = useState([]); // indices of rows not in staticData
+  const [uploadUnknownIdx, setUploadUnknownIdx] = useState(0);
+  const [uploadCorrections, setUploadCorrections] = useState({}); // {rowIndex: {targetId, a2026, commit, skip}}
+  const [uploadSearch, setUploadSearch] = useState('');
+  const [uploadDragOver, setUploadDragOver] = useState(false);
+  const [uploadCurrentEdit, setUploadCurrentEdit] = useState({ a2026: '', commit: '' });
+  const uploadFileRef = useRef(null);
+
   const isAharony = currentUser?.user === 'aharony';
+  const canEdit   = currentUser?.permissions !== 'VIEW';
+  const canUpload = !!currentUser?.addUser;
 
   const userTargets = (user) => [user?.target1, user?.target2].map(normalizeKey).filter(Boolean);
   const matchesUserTargets = (value, user) => {
@@ -359,13 +374,37 @@ const App = () => {
     const rows = csvText.trim().split(/\r?\n/).map(parseCsvLine);
     const headers = (rows[0] || []).map((h) => h.trim().toLowerCase());
     const map = {};
-    const idIdx = headers.findIndex((h) => h.includes('id'));
-    const a26Idx = headers.findIndex((h) => h.includes('a2026') || h.includes('ביצוע'));
-    const c26Idx = headers.findIndex((h) => h.includes('commit') || h.includes('שריון'));
+    const idIdx   = headers.findIndex((h) => h.includes('id') || h === 'מזהה' || h === 'קוד');
+    const a26Idx  = headers.findIndex((h) => h.includes('a2026') || (h.includes('ביצוע') && h.includes('2026')));
+    const c26Idx  = headers.findIndex((h) => h.includes('commit') || h.includes('שריון'));
+    const typeIdx = headers.findIndex((h) => h === 'סוג');
+    const wingIdx = headers.findIndex((h) => h === 'אגף');
+    const deptIdx = headers.findIndex((h) => h === 'מחלקה');
+    const nameIdx = headers.findIndex((h) => h.includes('שם סעיף') || h === 'שם');
+    const a24Idx  = headers.findIndex((h) => h.includes('ביצוע') && h.includes('2024'));
+    const b25Idx  = headers.findIndex((h) => h.includes('תקציב') && h.includes('2025'));
+    const b26Idx  = headers.findIndex((h) => h.includes('תקציב') && h.includes('2026'));
+
+    const knownIds = new Set(staticParsed.map(s => String(s.id).trim().split('.')[0]));
+
     rows.slice(1).forEach((cols) => {
-      if (cols[idIdx]) {
-        const normalizedId = String(cols[idIdx]).trim().split('.')[0];
-        map[normalizedId] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
+      if (!cols[idIdx]) return;
+      const normalizedId = String(cols[idIdx]).trim().split('.')[0];
+      map[normalizedId] = { a2026: cleanNum(cols[a26Idx]), commit: cleanNum(cols[c26Idx]) };
+
+      // סעיף שקיים בשיט עם מטאדאטה (D-J) אבל לא ב-budget_data.json — הוסף ל-staticParsed
+      if (!knownIds.has(normalizedId) && nameIdx !== -1 && cols[nameIdx]) {
+        staticParsed.push({
+          id: normalizedId,
+          name: cleanStr(cols[nameIdx]),
+          wing: wingIdx !== -1 ? cleanStr(cols[wingIdx]) : '',
+          dept: deptIdx !== -1 ? cleanStr(cols[deptIdx]) : '',
+          type: typeIdx !== -1 ? cleanStr(cols[typeIdx]) : 'הוצאה',
+          a2024: a24Idx !== -1 ? cleanNum(cols[a24Idx]) : 0,
+          b2025: b25Idx !== -1 ? cleanNum(cols[b25Idx]) : 0,
+          b2026: b26Idx !== -1 ? cleanNum(cols[b26Idx]) : 0,
+        });
+        knownIds.add(normalizedId);
       }
     });
     return { staticParsed, workPlansParsed, execMap: map };
@@ -386,17 +425,23 @@ const App = () => {
         } catch (_) {}
       }
 
-      // כל 4 הבקשות במקביל
-      const [bRes, wRes, gasRes, csvRes] = await Promise.all([
+      // קבצים מקומיים — חובה
+      const [bRes, wRes] = await Promise.all([
         fetch('/budget_data.json').then((res) => ensureOk(res, 'Budget data')),
         fetch('/workplans_data.json').then((res) => ensureOk(res, 'Workplans data')),
-        fetch(`${GAS_SCRIPT_URL}?t=${Date.now()}`).then((res) => ensureOk(res, 'Live GAS data')),
-        fetch(`${SHEETS_CSV_URL}&t=${Date.now()}`).then((res) => ensureOk(res, 'Sheets CSV'))
       ]);
+      const [bJson, wJson] = await Promise.all([bRes.json(), wRes.json()]);
 
-      const [bJson, wJson, liveData, csvText] = await Promise.all([
-        bRes.json(), wRes.json(), gasRes.json(), csvRes.text()
-      ]);
+      // GAS ו-CSV — אופציונלי, כישלון לא עוצר
+      let liveData = {}, csvText = '';
+      try {
+        const gasRes = await fetch(`${GAS_SCRIPT_URL}?t=${Date.now()}`).then(r => ensureOk(r, 'GAS'));
+        liveData = await gasRes.json();
+      } catch (e) { console.warn('GAS fetch failed:', e.message); }
+      try {
+        const csvRes = await fetch(`${SHEETS_CSV_URL}&t=${Date.now()}`).then(r => ensureOk(r, 'CSV'));
+        csvText = await csvRes.text();
+      } catch (e) { console.warn('CSV fetch failed:', e.message); }
 
       const { staticParsed, workPlansParsed, execMap } = applyData(bJson, wJson, liveData, csvText);
       setStaticData(staticParsed);
@@ -410,7 +455,7 @@ const App = () => {
     } catch (e) {
       console.error("loadData error:", e);
       if (!localStorage.getItem(CACHE_KEY)) {
-        alert('שגיאה בטעינת הנתונים. אנא בדוק את החיבור לאינטרנט ונסה שוב.');
+        alert('שגיאה בטעינת הנתונים: ' + e.message);
       }
     } finally {
       setLoading(false);
@@ -466,12 +511,12 @@ const App = () => {
     try {
       const res = await fetch(GAS_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'addUser', ...userForm, email: userForm.email, target1: userForm.role === 'ADMIN' ? '' : userForm.target1, target2: userForm.role === 'ADMIN' ? '' : userForm.target2 })
+        body: JSON.stringify({ action: 'addUser', ...userForm, email: userForm.email, permissions: userForm.permissions || 'EDIT', addUser: userForm.addUser || '', target1: userForm.role === 'ADMIN' ? '' : userForm.target1, target2: userForm.role === 'ADMIN' ? '' : userForm.target2 })
       }).then((r) => ensureOk(r, 'Add user'));
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        setUserForm({ username: '', password: '', email: '', role: 'WING', target1: '', target2: '', active: 'TRUE' });
+        setUserForm({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE' });
         alert('המשתמש נוסף בהצלחה');
       } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
     } catch (err) { alert(`שגיאה: ${err.message || ''}`); }
@@ -481,7 +526,7 @@ const App = () => {
     try {
       const res = await fetch(GAS_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'updateUser', ...user, email: user.email, target1: user.role === 'ADMIN' ? '' : user.target1, target2: user.role === 'ADMIN' ? '' : user.target2, active: String(user.active || 'TRUE').toUpperCase() })
+        body: JSON.stringify({ action: 'updateUser', ...user, email: user.email, permissions: user.permissions || 'EDIT', addUser: user.addUser || '', target1: user.role === 'ADMIN' ? '' : user.target1, target2: user.role === 'ADMIN' ? '' : user.target2, active: String(user.active || 'TRUE').toUpperCase() })
       }).then((r) => ensureOk(r, 'Update user'));
       const data = await res.json();
       if (data.success) { await loadUsers(); alert('המשתמש עודכן בהצלחה'); } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
@@ -752,6 +797,259 @@ const App = () => {
     if (!rows.length) return; downloadCsv(rows, filename);
   };
 
+  // ===== Upload Wizard Functions =====
+  const resetUpload = () => {
+    setUploadStep('drop');
+    setUploadRows([]);
+    setUploadUnknowns([]);
+    setUploadUnknownIdx(0);
+    setUploadCorrections({});
+    setUploadSearch('');
+    setUploadCurrentEdit({ a2026: '', commit: '' });
+  };
+
+  const parseUploadFile = async (file) => {
+    try {
+      const ab = await file.arrayBuffer();
+      const ext = file.name.split('.').pop().toLowerCase();
+      let wb;
+      if (ext === 'csv') {
+        const bytes = new Uint8Array(ab);
+        const isUtf8Bom = bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+        let text;
+        if (isUtf8Bom) {
+          text = new TextDecoder('utf-8').decode(ab);
+        } else {
+          // נסה UTF-8 strict — אם נכשל סימן שזה Windows-1255
+          try {
+            text = new TextDecoder('utf-8', { fatal: true }).decode(ab);
+          } catch {
+            text = new TextDecoder('windows-1255').decode(ab);
+          }
+        }
+        wb = XLSX.read(text, { type: 'string' });
+      } else {
+        wb = XLSX.read(ab, { type: 'array' });
+      }
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+      if (raw.length < 2) return alert('הקובץ ריק או לא תקין');
+
+      const hdrs = raw[0].map(h => String(h).toLowerCase().trim());
+
+      // מיפוי עמודות — header-based עם fallback למיקום קבוע
+      const findCol = (matchers, fixedIdx) => {
+        const i = hdrs.findIndex(h => matchers.some(m => h === m || h.includes(m)));
+        return i !== -1 ? i : fixedIdx;
+      };
+      const idIdx   = findCol(['id', 'מזהה', 'קוד'], 0);
+      const nameIdx = findCol(['name', 'שם', 'תיאור'], 1);
+      const a26Idx  = findCol(['a2026', 'ביצוע 2026'], 9);   // J
+      const cIdx    = findCol(['commit', 'שריון', 'התחייבות'], 11); // L
+      const wingIdx = findCol(['הקבצה', 'wing', 'אגף'], 24);   // Y — "תיאור הקבצה"
+      const deptIdx = findCol(['תיאור מחלקה', 'תיואר מחלקה', 'dept'], 22); // W — "תיואר מחלקה" (לא "מחלקה" שהוא קוד)
+
+      // זיהוי סוג לפי קידומת המזהה: 10–15 = הכנסה, 16–19 = הוצאה
+      const detectType = (id) => {
+        const prefix = parseInt(String(id).replace(/\D/g, '').substring(0, 2));
+        return (prefix >= 10 && prefix <= 15) ? 'הכנסה' : 'הוצאה';
+      };
+
+      // Debug — הדפס שורה ראשונה לזיהוי עמודות
+      console.log('Headers (first row):', raw[0]);
+      console.log(`raw[0][21]="${raw[0][21]}"  raw[0][22]="${raw[0][22]}"`);
+      console.log('Sample row[1]:', raw[1]);
+      console.log(`idIdx=${idIdx}, nameIdx=${nameIdx}, deptIdx=${deptIdx}, wingIdx=${wingIdx}, a26Idx=${a26Idx}, cIdx=${cIdx}`);
+      // הדפס fileDept לכמה שורות לדוגמה
+      const sampleDepts = raw.slice(1, 6).map((row, i) => `row${i+1}[${deptIdx}]="${row[deptIdx]}"`);
+      console.log('Sample fileDept values:', sampleDepts.join(' | '));
+
+      const rows = raw.slice(1)
+        .map((row, i) => {
+          const fileId = String(row[idIdx] || '').trim().split('.')[0];
+          return {
+            rowIndex: i,
+            fileId,
+            fileName: String(row[nameIdx] || '').trim(),
+            fileWing: String(wingIdx !== -1 ? row[wingIdx] : '').trim(),
+            fileDept: String(row[deptIdx] || '').trim(),
+            fileType: detectType(fileId),
+            a2026:    cleanNum(row[a26Idx]),
+            commit:   cleanNum(row[cIdx]),
+          };
+        })
+        .filter(r => r.fileId);
+
+      const knownIds = new Set(staticData.map(s => String(s.id).trim().split('.')[0]));
+      const unknowns = rows.map((r, i) => i).filter(i => !knownIds.has(rows[i].fileId));
+
+      setUploadRows(rows);
+      setUploadUnknowns(unknowns);
+      setUploadCorrections({});
+      setUploadUnknownIdx(0);
+      setUploadSearch('');
+
+      if (unknowns.length > 0) {
+        const first = rows[unknowns[0]];
+        setUploadCurrentEdit({ wing: first.fileWing, dept: first.fileDept, type: first.fileType || 'הוצאה', a2024: '0', b2025: '0', b2026: '0' });
+        setUploadStep('unknowns-warning');
+      } else {
+        setUploadStep('uploading');
+        await doUpload(rows, {});
+      }
+    } catch (e) {
+      console.error(e);
+      alert('שגיאה בקריאת הקובץ: ' + e.message);
+    }
+  };
+
+  const handleUploadFile = (file) => {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx', 'xls', 'csv'].includes(ext)) return alert('יש לבחור קובץ Excel או CSV');
+    parseUploadFile(file);
+  };
+
+  const inferWingFromDept = (dept) => {
+    if (!dept) return '';
+    const match = staticData.find(s => sameKey(s.dept, dept));
+    return match ? cleanStr(match.wing) : '';
+  };
+
+  const buildEditForRow = (row) => {
+    const matchedWing = fuzzyMatchList(row.fileWing, uploadAllWings);
+    const matchedDept = fuzzyMatchList(row.fileDept, uploadAllDepts);
+    const inferredWing = matchedWing || inferWingFromDept(matchedDept);
+    return {
+      wing: inferredWing,
+      dept: matchedDept,
+      type: row.fileType || 'הוצאה',
+      a2024: '0', b2025: '0', b2026: '0'
+    };
+  };
+
+  const proceedUnknownReview = () => {
+    const cur = uploadRows[uploadUnknowns[0]];
+    setUploadCurrentEdit(buildEditForRow(cur));
+    setUploadUnknownIdx(0);
+    setUploadSearch('');
+    setUploadStep('unknowns-review');
+  };
+
+  // targetId = מזהה סעיף קיים שנבחר מהחיפוש (אופציונלי). אם null — מוסיפים כסעיף חדש
+  const confirmUnknown = (targetId = null) => {
+    const rowIdx = uploadUnknowns[uploadUnknownIdx];
+    const row = uploadRows[rowIdx];
+    const newCorr = {
+      ...uploadCorrections,
+      [rowIdx]: {
+        targetId: targetId || row.fileId,
+        isNew: !targetId,
+        wing: uploadCurrentEdit.wing,
+        dept: uploadCurrentEdit.dept,
+        type: uploadCurrentEdit.type,
+        a2024: cleanNum(uploadCurrentEdit.a2024),
+        b2025: cleanNum(uploadCurrentEdit.b2025),
+        b2026: cleanNum(uploadCurrentEdit.b2026),
+      }
+    };
+    setUploadCorrections(newCorr);
+    advanceUnknown(newCorr);
+  };
+
+  const advanceUnknown = async (corrections) => {
+    const nextIdx = uploadUnknownIdx + 1;
+    if (nextIdx < uploadUnknowns.length) {
+      setUploadUnknownIdx(nextIdx);
+      const next = uploadRows[uploadUnknowns[nextIdx]];
+      setUploadCurrentEdit(buildEditForRow(next));
+      setUploadSearch('');
+    } else {
+      setUploadStep('uploading');
+      await doUpload(uploadRows, corrections);
+    }
+  };
+
+  const doUpload = async (rows, corrections) => {
+    const knownIds = new Set(staticData.map(s => String(s.id).trim().split('.')[0]));
+    const payload = rows
+      .map((row, i) => {
+        const corr = corrections[i];
+        const id = corr?.targetId || (knownIds.has(row.fileId) ? row.fileId : null);
+        if (!id) return null;
+        return {
+          id,
+          a2026: row.a2026,
+          commit: row.commit,
+          isNew: corr?.isNew || false,
+          name: row.fileName,
+          wing: corr?.wing || row.fileWing || '',
+          dept: corr?.dept || row.fileDept || '',
+          type: corr?.type || row.fileType || 'הוצאה',
+          a2024: corr?.a2024 ?? 0,
+          b2025: corr?.b2025 ?? 0,
+          b2026: corr?.b2026 ?? 0,
+        };
+      })
+      .filter(Boolean);
+
+    // Debug: הצג את הסעיפים החדשים בלבד
+    const newItems = payload.filter(p => p.isNew);
+    console.log('isNew items to add:', newItems.length, JSON.stringify(newItems));
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000); // 30 שניות
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'uploadExecution', rows: payload }),
+        signal: controller.signal
+      }).then(r => { clearTimeout(timeout); return ensureOk(r, 'Upload execution'); });
+      const data = await res.json();
+      console.log('GAS uploadExecution response:', JSON.stringify(data));
+      if (data.success) {
+        setUploadStep('done');
+        setTimeout(() => loadData(), 1500);
+      } else {
+        alert('שגיאה בהעלאה: ' + (data.error || 'שגיאה כללית'));
+        setUploadStep('drop');
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        alert('הבקשה לשרת ארכה יותר מ-30 שניות. ודא שה-GAS פרוס עם גרסה חדשה ונסה שוב.');
+      } else {
+        alert('שגיאה: ' + e.message);
+      }
+      setUploadStep('drop');
+    }
+  };
+
+  const uploadAllWings = useMemo(() => [...new Set(staticData.map(s => cleanStr(s.wing)).filter(Boolean))].sort(), [staticData]);
+  const uploadAllDepts = useMemo(() => [...new Set(staticData.map(s => cleanStr(s.dept)).filter(Boolean))].sort(), [staticData]);
+  // מחלקות לפי אגף נבחר
+  const uploadDeptsForWing = useMemo(() => {
+    if (!uploadCurrentEdit?.wing) return uploadAllDepts;
+    return [...new Set(staticData.filter(s => sameKey(s.wing, uploadCurrentEdit.wing)).map(s => cleanStr(s.dept)).filter(Boolean))].sort();
+  }, [staticData, uploadCurrentEdit?.wing, uploadAllDepts]);
+
+  // התאמה מקסימלית לרשימה קיימת — מחזיר ריק אם אין התאמה טובה
+  const fuzzyMatchList = (value, options) => {
+    if (!value) return '';
+    const norm = normalizeKey(value);
+    return options.find(o => normalizeKey(o) === norm) ||
+           options.find(o => normalizeKey(o).includes(norm) || norm.includes(normalizeKey(o))) ||
+           '';
+  };
+
+  const uploadSearchResults = useMemo(() => {
+    if (!uploadSearch.trim()) return [];
+    const q = uploadSearch.toLowerCase();
+    return staticData
+      .filter(s => s.id.includes(q) || s.name.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [uploadSearch, staticData]);
+  // ===== End Upload Wizard Functions =====
+
   const scopeTitle = useMemo(() => {
     if (!currentUser) return 'כלל המועצה';
     if (currentUser.role === 'ADMIN') return activeWingId || 'כלל המועצה';
@@ -926,6 +1224,7 @@ const App = () => {
                   <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
                 </button>
                 {mainTab === 'budget' && (
+                  <>
                   <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-red-50 text-red-700 border border-red-100' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600'}`}>
                     <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} />
                     <span>בקרת חריגות</span>
@@ -933,6 +1232,13 @@ const App = () => {
                       <span className="mr-auto bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{budgetAlertsCount}</span>
                     )}
                   </button>
+                  {canUpload && (
+                    <button onClick={() => { resetUpload(); setShowUploadModal(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-emerald-700 hover:bg-emerald-50 border border-dashed border-emerald-200 hover:border-emerald-400">
+                      <Upload size={18} className="text-emerald-500" />
+                      <span>טעינת נתוני תקציב</span>
+                    </button>
+                  )}
+                  </>
                 )}
               </div>
               <div className="p-4 space-y-1">
@@ -1039,16 +1345,28 @@ const App = () => {
               <div className="space-y-6 max-w-4xl">
                 <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8">
                   <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-5">הוספת משתמש חדש</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <input type="text" placeholder="שם משתמש" value={userForm.username} onChange={(e) => setUserForm(p => ({ ...p, username: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
                   <input type="text" placeholder="סיסמה" value={userForm.password} onChange={(e) => setUserForm(p => ({ ...p, password: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
-                    {/* השדה החדש שהוספנו לאימייל */}
                   <input type="email" placeholder="אימייל" value={userForm.email || ''} onChange={(e) => setUserForm(p => ({ ...p, email: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20" />
                   <select value={userForm.role} onChange={(e) => setUserForm(p => ({ ...p, role: e.target.value, target1: '', target2: '' }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
-                  <option value="ADMIN">מנהל (ADMIN)</option><option value="WING">ראש אגף (WING)</option><option value="DEPT">מנהל מחלקה (DEPT)</option>
+                    <option value="ADMIN">מנהל (ADMIN)</option><option value="WING">ראש אגף (WING)</option><option value="DEPT">מנהל מחלקה (DEPT)</option>
                   </select>
+                  <select value={userForm.permissions} onChange={(e) => setUserForm(p => ({ ...p, permissions: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
+                    <option value="VIEW">צפייה בלבד</option>
+                    <option value="EDIT">צפייה + עריכה</option>
+                  </select>
+                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <input type="checkbox" id="newUserAddUser" checked={!!userForm.addUser} onChange={(e) => setUserForm(p => ({ ...p, addUser: e.target.checked ? 'budget' : '' }))} className="w-4 h-4 accent-emerald-600 cursor-pointer" />
+                    <label htmlFor="newUserAddUser" className="text-sm font-bold text-slate-700 cursor-pointer select-none flex-1">טעינת נתונים</label>
+                    {userForm.addUser && (
+                      <select value={userForm.addUser} onChange={(e) => setUserForm(p => ({ ...p, addUser: e.target.value }))} className="py-1 px-2 bg-white border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-emerald-500">
+                        <option value="budget">נתוני תקציב</option>
+                      </select>
+                    )}
+                  </div>
                   <select value={userForm.active} onChange={(e) => setUserForm(p => ({ ...p, active: e.target.value }))} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-emerald-500/20">
-                  <option value="TRUE">סטטוס: פעיל</option><option value="FALSE">סטטוס: מושהה</option>
+                    <option value="TRUE">סטטוס: פעיל</option><option value="FALSE">סטטוס: מושהה</option>
                   </select>
               </div>  
                   {userForm.role !== 'ADMIN' && (
@@ -1071,29 +1389,48 @@ const App = () => {
                         <div key={u.id} className="bg-white p-3 lg:p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col xl:flex-row gap-3 xl:items-center">
                           <div className="bg-slate-50 text-slate-400 font-mono text-[10px] py-1 px-2 rounded-md shrink-0 self-start xl:self-center">#{u.id}</div>
                           
-                          {/* גריד דינמי: 5 עמודות לאדמין, 7 עמודות לאחרים (במסך מחשב) */}
-                          <div className={`grid gap-2 flex-1 w-full ${isAd ? 'grid-cols-2 lg:grid-cols-5' : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-7'}`}>
-                            
+                          {/* גריד דינמי: 6 עמודות לאדמין, 8 עמודות לאחרים */}
+                          <div className={`grid gap-2 flex-1 w-full ${isAd ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'}`}>
+
                             <div className="min-w-0">
                               <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">שם משתמש</span>
                               <input value={u.username} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, username: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none focus:ring-1 focus:ring-emerald-500" />
                             </div>
-                            
+
                             <div className="min-w-0">
                               <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">סיסמה</span>
                               <input value={u.password} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, password: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-mono outline-none focus:ring-1 focus:ring-emerald-500" />
                             </div>
-                            
+
                             <div className="min-w-0">
                               <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">אימייל</span>
                               <input type="email" value={u.email || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, email: e.target.value } : x))} className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-md text-xs font-mono outline-none focus:ring-1 focus:ring-emerald-500" placeholder="mail@example.com" />
                             </div>
-                            
+
                             <div className="min-w-0">
-                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">הרשאה</span>
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">תפקיד</span>
                               <select value={u.role} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, role: e.target.value, target1: '', target2: '' } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="ADMIN">ADMIN</option><option value="WING">WING</option><option value="DEPT">DEPT</option></select>
                             </div>
-                            
+
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">הרשאות</span>
+                              <select value={u.permissions || 'EDIT'} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, permissions: e.target.value } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none">
+                                <option value="VIEW">צפייה</option>
+                                <option value="EDIT">עריכה</option>
+                              </select>
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">טעינת נתונים</span>
+                              <div className="flex items-center gap-1.5 py-1.5">
+                                <input type="checkbox" checked={!!u.addUser} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, addUser: e.target.checked ? 'budget' : '' } : x))} className="w-3.5 h-3.5 accent-emerald-600 cursor-pointer" />
+                                {u.addUser && (
+                                  <select value={u.addUser} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, addUser: e.target.value } : x))} className="py-1 px-1 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold outline-none">
+                                    <option value="budget">תקציב</option>
+                                  </select>
+                                )}
+                              </div>
+                            </div>
+
                             <div className="min-w-0">
                               <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">סטטוס</span>
                               <select value={String(u.active).toUpperCase()} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, active: e.target.value } : x))} className="w-full py-1.5 px-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-bold outline-none"><option value="TRUE">פעיל</option><option value="FALSE">לא פעיל</option></select>
@@ -1298,7 +1635,9 @@ const App = () => {
                           <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0"><div className="px-3 text-slate-400"><Filter size={14} /></div><select value={budgetFilterDept} onChange={(e) => setBudgetFilterDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none"><option value="הכל">כל המחלקות</option>{budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
                           <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0"><select value={budgetTypeFilter} onChange={(e) => setBudgetTypeFilter(e.target.value)} className="bg-transparent py-2.5 px-4 text-sm font-bold text-slate-700 outline-none appearance-none"><option value="הכל">הכנסה/הוצאה</option><option value="הכנסה">הכנסה בלבד</option><option value="הוצאה">הוצאה בלבד</option></select></div>
                        </div>
-                       {showOnlyBudgetAlerts && <button onClick={() => setShowOnlyBudgetAlerts(false)} className="w-full lg:w-auto px-4 py-2 bg-red-50 text-red-600 font-bold text-xs rounded-xl flex items-center justify-center gap-2"><X size={14}/> בטל סינון חריגות</button>}
+                       <button onClick={() => setShowOnlyBudgetAlerts(p => !p)} className={`w-full lg:w-auto px-4 py-2 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors border ${showOnlyBudgetAlerts ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-600 border-red-200 hover:bg-red-50'}`}>
+                         <ShieldAlert size={14} /> {showOnlyBudgetAlerts ? 'מציג חריגות בלבד' : 'סנן חריגות בלבד'}
+                       </button>
                     </div>
                     <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                       <table className="w-full text-right">
@@ -1502,9 +1841,17 @@ const App = () => {
                                       <td className="py-4 px-5 text-center">
                                          {latestPrev ? (<div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[latestPrev].bg} ${STATUS_CONFIG[latestPrev].text} ${STATUS_CONFIG[latestPrev].border}`}><History size={10} className="opacity-70" />{STATUS_CONFIG[latestPrev].label} <span className="opacity-50 font-normal">(ר{prevStatuses[prevStatuses.length - 1]})</span></div>) : <span className="text-slate-300 text-xl leading-none">-</span>}
                                       </td>
-                                      <td className="py-4 px-5"><StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} /></td>
                                       <td className="py-4 px-5">
-                                         <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="הקלד הערה למנהל..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400" /></div>
+                                        {canEdit
+                                          ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                          : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                        }
+                                      </td>
+                                      <td className="py-4 px-5">
+                                         {canEdit
+                                           ? <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="הקלד הערה למנהל..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400" /></div>
+                                           : <span className="text-xs text-slate-500">{t[`n${workplanQuarter}`] || ''}</span>
+                                         }
                                       </td>
                                    </tr>
                                 )
@@ -1554,12 +1901,18 @@ const App = () => {
                                          </div>
                                          <div>
                                             <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון ר{workplanQuarter}</p>
-                                            <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                            {canEdit
+                                              ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                              : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                            }
                                          </div>
                                       </div>
                                       <div>
                                          <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות</p>
-                                         <textarea rows={2} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white/80 border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none" />
+                                         {canEdit
+                                           ? <textarea rows={2} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white/80 border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none" />
+                                           : <p className="text-xs text-slate-600">{t[`n${workplanQuarter}`] || <span className="text-slate-400">אין הערות</span>}</p>
+                                         }
                                       </div>
                                    </div>
                                 )}
@@ -1574,6 +1927,211 @@ const App = () => {
           </div>
         </main>
       </div>
+
+      {/* ===== Upload Modal ===== */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-[1500] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200">
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center">
+                  <FileSpreadsheet size={18} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="font-black text-slate-800 text-sm">טעינת נתוני תקציב</h2>
+                  {uploadStep === 'unknowns-review' && (
+                    <p className="text-[11px] text-slate-400">סעיף {uploadUnknownIdx + 1} מתוך {uploadUnknowns.length} לא מזוהים</p>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => setShowUploadModal(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Step: drop */}
+            {uploadStep === 'drop' && (
+              <div className="p-8">
+                <div
+                  onDragOver={e => { e.preventDefault(); setUploadDragOver(true); }}
+                  onDragLeave={() => setUploadDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setUploadDragOver(false); handleUploadFile(e.dataTransfer.files[0]); }}
+                  onClick={() => uploadFileRef.current?.click()}
+                  className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all ${uploadDragOver ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200 hover:border-emerald-300 hover:bg-slate-50'}`}
+                >
+                  <Upload size={36} className={`mx-auto mb-4 ${uploadDragOver ? 'text-emerald-500' : 'text-slate-300'}`} />
+                  <p className="font-bold text-slate-700 mb-1">גרור קובץ לכאן</p>
+                  <p className="text-sm text-slate-400">או לחץ לבחירת קובץ</p>
+                  <p className="text-[11px] text-slate-300 mt-3">Excel (.xlsx, .xls) או CSV</p>
+                </div>
+                <input ref={uploadFileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => handleUploadFile(e.target.files[0])} />
+              </div>
+            )}
+
+            {/* Step: unknowns-warning */}
+            {uploadStep === 'unknowns-warning' && (
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto mb-5">
+                  <AlertTriangle size={32} className="text-amber-500" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 mb-2">נמצאו סעיפים לא מזוהים</h3>
+                <p className="text-slate-500 mb-1">
+                  <span className="font-black text-amber-600 text-2xl">{uploadUnknowns.length}</span> סעיפים לא נמצאו במערכת
+                </p>
+                <p className="text-sm text-slate-400 mb-8">מתוך {uploadRows.length} סעיפים בקובץ</p>
+                <button onClick={proceedUnknownReview} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold transition-colors">
+                  המשך לבדיקת הסעיפים
+                </button>
+              </div>
+            )}
+
+            {/* Step: unknowns-review */}
+            {uploadStep === 'unknowns-review' && (() => {
+              const rowIdx = uploadUnknowns[uploadUnknownIdx];
+              const row = uploadRows[rowIdx];
+              return (
+                <div className="p-5 space-y-4 overflow-y-auto max-h-[80vh]">
+                  {/* Progress bar */}
+                  <div className="w-full bg-slate-100 rounded-full h-1.5">
+                    <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${(uploadUnknownIdx / uploadUnknowns.length) * 100}%` }} />
+                  </div>
+
+                  {/* נתוני הקובץ — קריאה בלבד */}
+                  <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                    <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider mb-2">סעיף מהקובץ — לא קיים במערכת</p>
+                    <p className="font-black text-slate-800 text-sm leading-snug">{row.fileName || '—'}</p>
+                    <p className="text-xs font-mono text-slate-500 mt-0.5 mb-3">מזהה: {row.fileId}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-white/70 rounded-xl px-3 py-2 text-center">
+                        <p className="text-[9px] text-slate-400 font-bold mb-0.5">ביצוע 2026 (מהקובץ)</p>
+                        <p className="text-sm font-black text-slate-700 tabular-nums" dir="ltr">{formatILS(row.a2026)}</p>
+                      </div>
+                      <div className="bg-white/70 rounded-xl px-3 py-2 text-center">
+                        <p className="text-[9px] text-slate-400 font-bold mb-0.5">שריון (מהקובץ)</p>
+                        <p className="text-sm font-black text-slate-700 tabular-nums" dir="ltr">{formatILS(row.commit)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* חיפוש — האם זה סעיף קיים עם מזהה שגוי? */}
+                  <div>
+                    <p className="text-xs font-bold text-slate-500 mb-2">האם הסעיף כבר קיים במערכת תחת מזהה אחר? חפש:</p>
+                    <div className="relative">
+                      <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="חפש לפי שם, מזהה, מחלקה..."
+                        value={uploadSearch}
+                        onChange={e => setUploadSearch(e.target.value)}
+                        className="w-full pr-8 pl-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        autoFocus
+                      />
+                    </div>
+                    {uploadSearchResults.length > 0 && (
+                      <div className="mt-2 border border-slate-100 rounded-xl overflow-hidden divide-y divide-slate-50 max-h-36 overflow-y-auto shadow-sm">
+                        {uploadSearchResults.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => confirmUnknown(String(s.id).trim().split('.')[0])}
+                            className="w-full text-right px-4 py-2.5 hover:bg-emerald-50 transition-colors flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{s.name}</p>
+                              <p className="text-[10px] text-slate-400">{s.id} · {s.dept} · {s.wing}</p>
+                            </div>
+                            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {uploadSearch.trim() && uploadSearchResults.length === 0 && (
+                      <p className="text-xs text-slate-400 mt-2 text-center">לא נמצאו תוצאות — יתווסף כסעיף חדש</p>
+                    )}
+                  </div>
+
+                  {/* פרטי הסעיף החדש — לעריכה */}
+                  <div className="border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">פרטי הסעיף החדש לעדכון</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold mb-1">אגף {!uploadCurrentEdit.wing && <span className="text-red-400">*חובה</span>}</p>
+                        <select value={uploadCurrentEdit.wing} onChange={e => setUploadCurrentEdit(p => ({ ...p, wing: e.target.value, dept: '' }))}
+                          className={`w-full py-1.5 px-2 bg-slate-50 border rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-emerald-400 ${!uploadCurrentEdit.wing ? 'border-red-300' : 'border-slate-200'}`}>
+                          <option value="">-- בחר אגף --</option>
+                          {uploadAllWings.map(w => <option key={w} value={w}>{w}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 font-bold mb-1">מחלקה {!uploadCurrentEdit.dept && <span className="text-red-400">*חובה</span>}</p>
+                        <select value={uploadCurrentEdit.dept} onChange={e => setUploadCurrentEdit(p => ({ ...p, dept: e.target.value }))}
+                          className={`w-full py-1.5 px-2 bg-slate-50 border rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-emerald-400 ${!uploadCurrentEdit.dept ? 'border-red-300' : 'border-slate-200'}`}>
+                          <option value="">-- בחר מחלקה --</option>
+                          {uploadDeptsForWing.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-bold mb-1">סוג (זוהה אוטומטית לפי מזהה)</p>
+                      <select value={uploadCurrentEdit.type} onChange={e => setUploadCurrentEdit(p => ({ ...p, type: e.target.value }))}
+                        className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none">
+                        <option value="הוצאה">הוצאה</option>
+                        <option value="הכנסה">הכנסה</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
+                      {[['a2024','ביצוע 2024'],['b2025','תקציב 2025'],['b2026','תקציב 2026']].map(([key, label]) => (
+                        <div key={key}>
+                          <p className="text-[9px] text-slate-400 font-bold mb-1">{label}</p>
+                          <input type="number" value={uploadCurrentEdit[key]}
+                            onChange={e => setUploadCurrentEdit(p => ({ ...p, [key]: e.target.value }))}
+                            className="w-full py-1.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold outline-none focus:ring-1 focus:ring-emerald-400" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* אישור */}
+                  <button
+                    onClick={() => {
+                      if (!uploadCurrentEdit.wing || !uploadCurrentEdit.dept) return alert('יש לבחור אגף ומחלקה');
+                      confirmUnknown(null);
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white py-3 rounded-xl font-bold transition-colors"
+                  >
+                    אישור — המשך לסעיף הבא
+                  </button>
+                </div>
+              );
+            })()}
+
+            {/* Step: uploading */}
+            {uploadStep === 'uploading' && (
+              <div className="p-12 text-center">
+                <Loader2 size={40} className="animate-spin text-emerald-500 mx-auto mb-4" />
+                <p className="font-bold text-slate-700">מעלה נתונים...</p>
+              </div>
+            )}
+
+            {/* Step: done */}
+            {uploadStep === 'done' && (
+              <div className="p-12 text-center">
+                <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-5">
+                  <CheckCircle2 size={36} className="text-emerald-500" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 mb-2">הנתונים עודכנו בהצלחה</h3>
+                <p className="text-slate-400 text-sm mb-8">הנתונים יטענו מחדש אוטומטית</p>
+                <button onClick={() => setShowUploadModal(false)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-xl font-bold transition-colors">
+                  סגור
+                </button>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+      {/* ===== End Upload Modal ===== */}
 
       {/* Toast Notification */}
       <div className={`fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[2100] transition-all duration-300 ${saveStatus ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
