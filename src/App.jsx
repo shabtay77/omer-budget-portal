@@ -246,9 +246,19 @@ const App = () => {
   const [workPlans, setWorkPlans] = useState([]);
   const [executionMap, setExecutionMap] = useState({});
   const [loading, setLoading] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
   const [pendingChanges, setPendingChanges] = useState([]);
   const [saveStatus, setSaveStatus] = useState('');
+  const [toast, setToast] = useState(null); // { msg, type: 'success'|'error'|'saving' }
+  const toastTimerRef = useRef(null);
+  const showToast = (msg, type = 'success', duration = 3000) => {
+    clearTimeout(toastTimerRef.current);
+    setToast({ msg, type });
+    if (type !== 'saving') {
+      toastTimerRef.current = setTimeout(() => setToast(null), duration);
+    }
+  };
 
   const [mainTab, setMainTab] = useState('budget');
   const [viewMode, setViewMode] = useState('dashboard');
@@ -353,7 +363,7 @@ const App = () => {
   }, [mainTab, viewMode]);
 
   useEffect(() => {
-    if (mainTab === 'workplan' && viewMode === 'table') {
+    if (mainTab === 'workplan' && viewMode === 'table' && workplanQuarter === 0) {
       setShowQuarterPicker(true);
     }
   }, [mainTab, viewMode]);
@@ -370,8 +380,9 @@ const App = () => {
     if (pendingChanges.length === 0) return;
     const timer = setTimeout(async () => {
       const changesToSave = [...pendingChanges];
-      setPendingChanges([]); 
+      setPendingChanges([]);
       setSaveStatus('saving');
+      showToast('שומר שינויים...', 'saving');
       try {
         const res = await fetch(GAS_SCRIPT_URL, {
           method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'batchUpdate', changes: changesToSave })
@@ -380,6 +391,7 @@ const App = () => {
         const data = await res.json();
         if (data.success) {
           setSaveStatus('saved');
+          showToast('השינויים נשמרו בהצלחה', 'success', 3000);
           setTimeout(() => setSaveStatus(''), 2500);
         } else {
           throw new Error(data.error || 'שגיאה בעדכון');
@@ -387,6 +399,7 @@ const App = () => {
       } catch (e) {
         console.error("Auto-save error:", e);
         setSaveStatus('error');
+        showToast('שגיאה בשמירה — ננסה שוב', 'error', 5000);
         setPendingChanges((prev) => [...prev, ...changesToSave]);
         setTimeout(() => setSaveStatus(''), 4000);
       }
@@ -487,6 +500,7 @@ const App = () => {
       try {
         localStorage.setItem(CACHE_KEY, JSON.stringify({ staticParsed, workPlansParsed, execMap }));
       } catch (_) {}
+      setLastRefreshedAt(new Date());
     } catch (e) {
       console.error("loadData error:", e);
       if (!localStorage.getItem(CACHE_KEY)) {
@@ -505,6 +519,8 @@ const App = () => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
+    if (!uInput.trim()) { setLoginError('נא להזין שם משתמש'); return; }
+    if (!pInput.trim()) { setLoginError('נא להזין סיסמה'); return; }
     setIsLoggingIn(true);
     try {
       const res = await fetch(`${GAS_SCRIPT_URL}?action=login&username=${encodeURIComponent(uInput)}&password=${encodeURIComponent(pInput)}`).then((r) => ensureOk(r, 'Login'));
@@ -783,6 +799,17 @@ const App = () => {
       p1: Math.round((s1 / total) * 100) || 0, p2: Math.round((s2 / total) * 100) || 0, p3: Math.round((s3 / total) * 100) || 0, pM: Math.round((m / total) * 100) || 0
     };
   }, [filteredWorkData, workplanQuarter]);
+
+  // ספירת משימות בפיגור לכלל המשימות של המשתמש — לbadge בניווט
+  const overdueTasksCount = useMemo(() => {
+    if (!workPlans.length) return 0;
+    return workPlans.filter(t => {
+      if (currentUser?.role === 'WING' && !matchesUserTargets(t.wing, currentUser)) return false;
+      if (currentUser?.role === 'DEPT' && !matchesUserTargets(t.dept, currentUser)) return false;
+      if (activeWingId && cleanStr(t.wing) !== cleanStr(activeWingId)) return false;
+      return isTaskOverdue(t, workplanQuarter);
+    }).length;
+  }, [workPlans, currentUser, activeWingId, workplanQuarter]);
 
   const orphanedDataAlert = useMemo(() => {
     if (currentUser?.user !== 'aharony') return null;
@@ -1118,9 +1145,7 @@ const App = () => {
              </div>
           )}
           <div className="mb-10 text-center flex flex-col items-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-700 to-teal-900 text-white flex items-center justify-center mb-5 shadow-xl shadow-emerald-900/20">
-              <Building2 size={32} strokeWidth={2} />
-            </div>
+            <img src="/logo.png" alt="מועצת עומר" className="h-24 object-contain drop-shadow-sm mb-4" />
             <h1 className="text-3xl font-black text-slate-800 tracking-tight">פורטל מועצת עומר</h1>
             <p className="text-slate-500 font-medium text-sm mt-2">ניהול תקציב, תכניות עבודה ובקרה</p>
           </div>
@@ -1143,6 +1168,20 @@ const App = () => {
   return (
     <div className="min-h-screen bg-slate-50/50 text-slate-800 flex flex-col font-sans text-right overflow-x-hidden" dir="rtl">
       
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[3000] flex items-center gap-2.5 px-5 py-3 rounded-2xl shadow-xl text-sm font-bold transition-all animate-in fade-in slide-in-from-bottom-4 duration-300 ${
+          toast.type === 'success' ? 'bg-emerald-700 text-white' :
+          toast.type === 'error'   ? 'bg-red-600 text-white' :
+                                     'bg-slate-800 text-white'
+        }`}>
+          {toast.type === 'saving' && <Loader2 size={16} className="animate-spin shrink-0" />}
+          {toast.type === 'success' && <span className="shrink-0">✓</span>}
+          {toast.type === 'error' && <AlertTriangle size={16} className="shrink-0" />}
+          {toast.msg}
+        </div>
+      )}
+
       {/* Global Spinner */}
       {loading && (
         <div className="fixed inset-0 z-[2000] bg-white/50 backdrop-blur-sm flex items-center justify-center">
@@ -1224,15 +1263,17 @@ const App = () => {
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
           
-          {/* אינדיקטור שמירה — נקודה קטנה */}
-          {saveStatus === 'saving' && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" title="שומר..." />}
-          {saveStatus === 'saved' && <div className="w-2 h-2 rounded-full bg-emerald-400" title="נשמר" />}
-          {saveStatus === 'error' && <div className="w-2 h-2 rounded-full bg-red-500" title="שגיאה בשמירה" />}
+          {/* אינדיקטור שמירה — נקודה עדינה בלבד, ה-toast מספק את ההודעה הברורה */}
+          {saveStatus === 'saving' && <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />}
+          {saveStatus === 'saved' && <div className="w-2 h-2 rounded-full bg-emerald-400" />}
+          {saveStatus === 'error' && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
 
-          <button onClick={loadData} disabled={loading} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs hover:bg-slate-100 transition-colors">
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> <span className="hidden sm:inline">רענן נתונים</span>
+          <button onClick={loadData} disabled={loading} title={lastRefreshedAt ? `רענון אחרון: ${lastRefreshedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}` : 'טרם רוענן'} className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs hover:bg-slate-100 transition-colors">
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <span className="hidden sm:inline">רענן נתונים</span>
+            {lastRefreshedAt && <span className="hidden sm:inline text-slate-400 font-medium">{lastRefreshedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}</span>}
           </button>
-          <button onClick={exportCurrentView} className="hidden sm:flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs shadow-sm hover:bg-slate-50 hover:text-emerald-700 transition-colors">
+          <button onClick={exportCurrentView} title={`ייצוא CSV — ${mainTab === 'budget' ? (viewMode === 'control' ? 'בקרת חריגות' : 'תקציב') : 'תכנית עבודה'}`} className="hidden sm:flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-slate-600 font-bold text-xs shadow-sm hover:bg-slate-50 hover:text-emerald-700 transition-colors">
             <Download size={14} /> ייצוא
           </button>
           <div className="flex flex-col items-end mr-2">
@@ -1269,15 +1310,18 @@ const App = () => {
             <div className="flex-1 overflow-y-auto pb-24">
               <div className="p-4 space-y-1.5 border-b border-slate-100">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2">תצוגות</p>
-                <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
                   <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
                 </button>
-                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan') setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan') setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
                   <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
+                  {mainTab === 'workplan' && overdueTasksCount > 0 && (
+                    <span className="mr-auto bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{overdueTasksCount}</span>
+                  )}
                 </button>
                 {mainTab === 'budget' && (
                   <>
-                  <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${viewMode === 'control' ? 'bg-red-50 text-red-700 border border-red-100' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600'}`}>
+                  <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'control' ? 'bg-red-50 text-red-700 border-red-400' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600 border-transparent'}`}>
                     <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} />
                     <span>בקרת חריגות</span>
                     {budgetAlertsCount > 0 && (
@@ -1617,8 +1661,9 @@ const App = () => {
                           <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0"><div className="px-3 text-slate-400"><Filter size={14} /></div><select value={budgetFilterDept} onChange={(e) => setBudgetFilterDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none"><option value="הכל">כל המחלקות</option>{budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}</select></div>
                           <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0"><select value={budgetTypeFilter} onChange={(e) => setBudgetTypeFilter(e.target.value)} className="bg-transparent py-2.5 px-4 text-sm font-bold text-slate-700 outline-none appearance-none"><option value="הכל">הכנסה/הוצאה</option><option value="הכנסה">הכנסה בלבד</option><option value="הוצאה">הוצאה בלבד</option></select></div>
                        </div>
-                       <div className="hidden xl:flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl shrink-0">
-                         {[ { k: 'a2024', l: 'ביצוע 24' }, { k: 'b2025', l: 'תקציב 25' }, { k: 'b2026', l: 'תקציב 26' }, { k: 'a2026', l: 'ביצוע 26' }, { k: 'commitTotal2026', l: 'שריון+ביצוע' } ].map((col) => (<button key={col.k} onClick={() => toggleBudgetColumn(col.k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${budgetVisibleColumns[col.k] ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{col.l}</button>))}
+                       <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-1 rounded-xl shrink-0">
+                         <span className="text-[9px] font-black text-slate-400 px-2 uppercase tracking-widest whitespace-nowrap">עמודות:</span>
+                         {[ { k: 'a2024', l: 'ביצוע 24' }, { k: 'b2025', l: 'תקציב 25' }, { k: 'b2026', l: 'תקציב 26' }, { k: 'a2026', l: 'ביצוע 26' }, { k: 'commitTotal2026', l: 'שריון+ביצוע' } ].map((col) => (<button key={col.k} onClick={() => toggleBudgetColumn(col.k)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all ${budgetVisibleColumns[col.k] ? 'bg-emerald-700 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-white/60'}`}>{col.l}</button>))}
                        </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 py-1 text-xs font-bold text-slate-500">
@@ -1689,6 +1734,7 @@ const App = () => {
                        </div>
                        <button onClick={() => setShowOnlyBudgetAlerts(p => !p)} className={`w-full lg:w-auto px-4 py-2 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors border ${showOnlyBudgetAlerts ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-600 border-red-200 hover:bg-red-50'}`}>
                          <ShieldAlert size={14} /> {showOnlyBudgetAlerts ? 'מציג חריגות בלבד' : 'סנן חריגות בלבד'}
+                         {showOnlyBudgetAlerts && <X size={13} className="mr-1 opacity-80" />}
                        </button>
                     </div>
                     <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
@@ -1824,12 +1870,15 @@ const App = () => {
                           <input type="text" placeholder="חיפוש משימה, פעילות או מזהה..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
                        </div>
                        <div className="flex w-full md:w-auto gap-2 overflow-x-auto pb-1 md:pb-0 hide-scrollbar">
-                          <div className="flex-1 md:flex-none items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0 relative min-w-[150px]">
+                          <div className="flex-1 md:flex-none relative min-w-[150px]">
+                            <div className={`flex items-center bg-slate-50 rounded-xl border shrink-0 ${showOnlyOverdueTasks ? 'border-slate-100 opacity-50' : 'border-slate-200'}`}>
                              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"><Filter size={14} /></div>
-                             <select disabled={showOnlyOverdueTasks} value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="w-full bg-transparent py-2.5 pl-4 pr-9 text-sm font-bold text-slate-700 outline-none appearance-none disabled:opacity-50">
+                             <select disabled={showOnlyOverdueTasks} value={filterDept} onChange={(e) => setFilterDept(e.target.value)} className="w-full bg-transparent py-2.5 pl-4 pr-9 text-sm font-bold text-slate-700 outline-none appearance-none disabled:cursor-not-allowed">
                                <option value="הכל">כל המחלקות באגף</option>
                                {availableDepts.map(d => <option key={d} value={d}>{d}</option>)}
                              </select>
+                            </div>
+                            {showOnlyOverdueTasks && <p className="text-[9px] text-slate-400 font-bold mt-0.5 pr-1">מושבת בזמן סינון חריגות</p>}
                           </div>
                           <button onClick={() => setShowOnlyOverdueTasks(!showOnlyOverdueTasks)} className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${showOnlyOverdueTasks ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'}`}>
                              <AlertTriangle size={14}/> {showOnlyOverdueTasks ? 'הסר סינון חריגות' : 'הצג חריגות בלבד'}
@@ -1901,7 +1950,7 @@ const App = () => {
                                       </td>
                                       <td className="py-4 px-5">
                                          {canEdit
-                                           ? <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="הקלד הערה למנהל..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-400" /></div>
+                                           ? <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all" title="לחץ לעריכת הערה"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 group-hover:text-slate-400 transition-colors" /><input type="text" placeholder="הוסף הערה..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-300 focus:placeholder:text-slate-400" /></div>
                                            : <span className="text-xs text-slate-500">{t[`n${workplanQuarter}`] || ''}</span>
                                          }
                                       </td>
@@ -2211,16 +2260,19 @@ const App = () => {
             <Wallet size={20} strokeWidth={2} />
             <span>תקציב</span>
           </button>
-          <button onClick={() => { setMainTab('budget'); setViewMode('control'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors relative ${mainTab === 'budget' && viewMode === 'control' ? 'text-red-600' : 'text-slate-400'}`}>
+          <button onClick={() => { setMainTab('budget'); setViewMode('control'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors relative ${mainTab === 'budget' && viewMode === 'control' ? 'text-red-600' : 'text-red-300 hover:text-red-400'}`}>
             <ShieldAlert size={20} strokeWidth={2} />
             <span>בקרת תקציב</span>
             {budgetAlertsCount > 0 && (
               <span className="absolute top-2 right-[calc(50%-18px)] bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{budgetAlertsCount > 99 ? '99+' : budgetAlertsCount}</span>
             )}
           </button>
-          <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors relative ${mainTab === 'workplan' && viewMode === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
             <Target size={20} strokeWidth={2} />
             <span>תכנית עבודה</span>
+            {overdueTasksCount > 0 && (
+              <span className="absolute top-2 right-[calc(50%-18px)] bg-orange-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{overdueTasksCount > 99 ? '99+' : overdueTasksCount}</span>
+            )}
           </button>
           <button onClick={() => { setMainTab('workplan'); setViewMode('table'); setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'table' ? 'text-blue-600' : 'text-slate-400'}`}>
             <ClipboardList size={20} strokeWidth={2} />
