@@ -8,7 +8,7 @@ import {
   Megaphone, TableProperties, ShieldAlert, CheckCircle2, Clock, AlertTriangle,
   HelpCircle, Save, Menu, X, Loader2, MessageSquare, History, MinusCircle,
   Download, ChevronDown, Filter, Search, TrendingUp, TrendingDown,
-  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward
+  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward, ClipboardList, LogOut
 } from 'lucide-react';
 
 const SHEETS_CSV_URL =
@@ -16,6 +16,8 @@ const SHEETS_CSV_URL =
 const GAS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbzPjDK_Enpt5dqW_soJrxs9y6fU5-cKMqsKzNJNouXvNxGnI8Xrxl9nGL51mG3smACV2A/exec";
 const CACHE_KEY = 'omer_portal_v3';
+const SESSION_KEY = 'omer_session_v1';
+const SESSION_TIMEOUT = 8 * 60 * 60 * 1000; // 8 שעות
 
 const ICONS = {
   'ראש הרשות': UserRound,
@@ -305,6 +307,39 @@ const App = () => {
     return targets.includes(normalizeKey(value));
   };
 
+  const [sessionRestored, setSessionRestored] = useState(false);
+
+  // שחזור session אוטומטי בטעינה
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(SESSION_KEY);
+      if (saved) {
+        const { user, lastActive } = JSON.parse(saved);
+        if (Date.now() - lastActive < SESSION_TIMEOUT) {
+          setCurrentUser(user);
+          setIsLoggedIn(true);
+          setSessionRestored(true);
+          if (user.role === 'WING') setActiveWingId(cleanStr(user.target1) || null);
+          localStorage.setItem(SESSION_KEY, JSON.stringify({ user, lastActive: Date.now() }));
+        } else {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      }
+    } catch (_) {}
+  }, []);
+
+  // עדכון lastActive בכל ניווט
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    try {
+      const saved = localStorage.getItem(SESSION_KEY);
+      if (saved) {
+        const session = JSON.parse(saved);
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, lastActive: Date.now() }));
+      }
+    } catch (_) {}
+  }, [mainTab, viewMode, isLoggedIn]);
+
   useEffect(() => {
     setShowOnlyBudgetAlerts(false);
     setShowOnlyOverdueTasks(false);
@@ -462,6 +497,11 @@ const App = () => {
     }
   };
 
+  // טעינת נתונים אחרי שחזור session
+  useEffect(() => {
+    if (sessionRestored) loadData();
+  }, [sessionRestored]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -472,6 +512,7 @@ const App = () => {
       if (data.success && data.user) {
         setCurrentUser(data.user);
         setIsLoggedIn(true);
+        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user: data.user, lastActive: Date.now() })); } catch (_) {}
         setShowOnlyBudgetAlerts(false);
         setShowOnlyOverdueTasks(false);
         setMainTab('budget');
@@ -489,6 +530,14 @@ const App = () => {
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem(SESSION_KEY);
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    setUInput('');
+    setPInput('');
   };
 
   const loadUsers = async () => {
@@ -1193,6 +1242,9 @@ const App = () => {
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-100 to-teal-200 text-emerald-800 flex items-center justify-center font-black border border-emerald-200 shadow-sm shrink-0">
             {currentUser.user.charAt(0).toUpperCase()}
           </div>
+          <button onClick={handleLogout} title="יציאה" className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+            <LogOut size={18} strokeWidth={2} />
+          </button>
         </div>
       </header>
 
@@ -2159,16 +2211,20 @@ const App = () => {
             <Wallet size={20} strokeWidth={2} />
             <span>תקציב</span>
           </button>
-          <button onClick={() => { setMainTab('budget'); setViewMode('control'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors relative ${mainTab === 'budget' && viewMode === 'control' ? 'text-red-600' : 'text-slate-400'}`}>
+          <button onClick={() => { setMainTab('budget'); setViewMode('control'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors relative ${mainTab === 'budget' && viewMode === 'control' ? 'text-red-600' : 'text-slate-400'}`}>
             <ShieldAlert size={20} strokeWidth={2} />
-            <span>בקרה</span>
+            <span>בקרת תקציב</span>
             {budgetAlertsCount > 0 && (
               <span className="absolute top-2 right-[calc(50%-18px)] bg-red-500 text-white text-[8px] font-black w-4 h-4 rounded-full flex items-center justify-center">{budgetAlertsCount > 99 ? '99+' : budgetAlertsCount}</span>
             )}
           </button>
-          <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'workplan' ? 'text-blue-600' : 'text-slate-400'}`}>
+          <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'dashboard' ? 'text-blue-600' : 'text-slate-400'}`}>
             <Target size={20} strokeWidth={2} />
-            <span>משימות</span>
+            <span>תכנית עבודה</span>
+          </button>
+          <button onClick={() => { setMainTab('workplan'); setViewMode('table'); setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'workplan' && viewMode === 'table' ? 'text-blue-600' : 'text-slate-400'}`}>
+            <ClipboardList size={20} strokeWidth={2} />
+            <span>עדכון משימות</span>
           </button>
           {isAharony && (
             <button onClick={async () => { setMainTab('users'); await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
