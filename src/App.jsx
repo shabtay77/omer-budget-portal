@@ -115,8 +115,9 @@ const isTaskOverdue = (t, quarter) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   if (!taskDate || taskDate >= today) return false;
-  const status = quarter === 0 ? getOverallRating(t) : t[`q${quarter}`];
-  return status !== 1;
+  // אם הוזן עדכון "בוצע" בכל רבעון שהוא — המשימה אינה בחריגה
+  if ([t.q1, t.q2, t.q3, t.q4].includes(1)) return false;
+  return true;
 };
 
 const ensureOk = async (res, label = "Request") => {
@@ -296,7 +297,7 @@ const App = () => {
 
   // Upload wizard state
   const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadStep, setUploadStep] = useState('drop'); // drop | unknowns-warning | unknowns-review | uploading | done
+  const [uploadStep, setUploadStep] = useState('drop'); // drop | unknowns-warning | unknowns-review | uploading | post-validation | done
   const [uploadRows, setUploadRows] = useState([]);        // all parsed rows from file
   const [uploadUnknowns, setUploadUnknowns] = useState([]); // indices of rows not in staticData
   const [uploadUnknownIdx, setUploadUnknownIdx] = useState(0);
@@ -304,6 +305,7 @@ const App = () => {
   const [uploadSearch, setUploadSearch] = useState('');
   const [uploadDragOver, setUploadDragOver] = useState(false);
   const [uploadCurrentEdit, setUploadCurrentEdit] = useState({ a2026: '', commit: '' });
+  const [uploadValidation, setUploadValidation] = useState(null); // תוצאות בדיקה אחרי הטעינה
   const uploadFileRef = useRef(null);
 
   const isAharony = currentUser?.user === 'aharony';
@@ -506,11 +508,13 @@ const App = () => {
         localStorage.setItem(CACHE_KEY, JSON.stringify({ staticParsed, workPlansParsed, execMap }));
       } catch (_) {}
       setLastRefreshedAt(new Date());
+      return { staticParsed, execMap }; // מחזיר נתונים טריים לשימוש הקורא
     } catch (e) {
       console.error("loadData error:", e);
       if (!localStorage.getItem(CACHE_KEY)) {
         alert('שגיאה בטעינת הנתונים: ' + e.message);
       }
+      return null;
     } finally {
       setLoading(false);
     }
@@ -828,12 +832,21 @@ const App = () => {
   }, [staticData, workPlans, currentUser]);
 
   const updateTaskLocal = (taskId, field, value) => {
+    // בדיקת רציפות רבעונים: אי אפשר לעדכן רבעון N אם רבעון N-1 לא עודכן
+    const q = parseInt(field.charAt(1), 10);
+    if ((field.startsWith('q') || field.startsWith('n')) && q > 1) {
+      const task = workPlans.find((t) => t.id === taskId);
+      if (task && !task[`q${q - 1}`]) {
+        alert(`לא ניתן לעדכן רבעון ${q} לפני שרבעון ${q - 1} עודכן`);
+        return;
+      }
+    }
     setWorkPlans((prev) => prev.map((t) => (t.id === taskId ? { ...t, [field]: value } : t)));
     setPendingChanges((prev) => {
-      const q = field.startsWith('q') ? parseInt(field.charAt(1), 10) : workplanQuarter;
-      const existing = prev.find((c) => c.id === taskId && c.quarter === q);
-      const update = { id: taskId, quarter: q, [field.startsWith('q') ? 'rating' : 'note']: value };
-      return existing ? [...prev.filter((c) => !(c.id === taskId && c.quarter === q)), { ...existing, ...update }] : [...prev, update];
+      const qNum = field.startsWith('q') ? q : workplanQuarter;
+      const existing = prev.find((c) => c.id === taskId && c.quarter === qNum);
+      const update = { id: taskId, quarter: qNum, [field.startsWith('q') ? 'rating' : 'note']: value };
+      return existing ? [...prev.filter((c) => !(c.id === taskId && c.quarter === qNum)), { ...existing, ...update }] : [...prev, update];
     });
   };
 
@@ -960,6 +973,8 @@ const App = () => {
             fileType: detectType(fileId),
             a2026:    cleanNum(row[a26Idx]),
             commit:   cleanNum(row[cIdx]),
+            col10:    cleanNum(row[9]),   // עמודה 10 לפי מיקום קבוע — ביצוע
+            col12:    cleanNum(row[11]),  // עמודה 12 לפי מיקום קבוע — ביצוע+שריון
           };
         })
         .filter(r => r.fileId);
@@ -992,6 +1007,61 @@ const App = () => {
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['xlsx', 'xls', 'csv'].includes(ext)) return alert('יש לבחור קובץ Excel או CSV');
     parseUploadFile(file);
+  };
+
+  // בדיקת אחרי טעינה — משווה נתוני קובץ לפורטל שנטען
+  const runPostUploadValidation = (rows, payload, freshStatic, freshExecMap) => {
+    const isIncome  = (id) => { const p = parseInt(String(id).replace(/\D/g,'').substring(0,2)); return p >= 11 && p <= 15; };
+    const isExpense = (id) => { const p = parseInt(String(id).replace(/\D/g,'').substring(0,2)); return p >= 16 && p <= 19; };
+
+    // סכומי קובץ — עמודה 10 ו-12 לפי מיקום קבוע
+    const fileIncomeExec    = rows.filter(r => isIncome(r.fileId)).reduce((s,r) => s + r.col10, 0);
+    const fileIncomeCommit  = rows.filter(r => isIncome(r.fileId)).reduce((s,r) => s + r.col12, 0);
+    const fileExpenseExec   = rows.filter(r => isExpense(r.fileId)).reduce((s,r) => s + r.col10, 0);
+    const fileExpenseCommit = rows.filter(r => isExpense(r.fileId)).reduce((s,r) => s + r.col12, 0);
+
+    // מיפוי payload לפי ID לבדיקה מה נשלח בפועל לשרת
+    const payloadMap = {};
+    payload.forEach(p => { payloadMap[String(p.id)] = p; });
+
+    // סכומי פורטל אחרי טעינה
+    const getE = (id) => { const e = freshExecMap[String(id).trim().split('.')[0]] || {}; return cleanNum(e.a2026); };
+    const getC = (id) => { const e = freshExecMap[String(id).trim().split('.')[0]] || {}; return cleanNum(e.a2026) + cleanNum(e.commit); };
+    const portalIncomeExec    = freshStatic.filter(s => isIncome(s.id)).reduce((s,i) => s + getE(i.id), 0);
+    const portalIncomeCommit  = freshStatic.filter(s => isIncome(s.id)).reduce((s,i) => s + getC(i.id), 0);
+    const portalExpenseExec   = freshStatic.filter(s => isExpense(s.id)).reduce((s,i) => s + getE(i.id), 0);
+    const portalExpenseCommit = freshStatic.filter(s => isExpense(s.id)).reduce((s,i) => s + getC(i.id), 0);
+
+    // בדיקה פרטנית: לכל שורה בקובץ — האם הפורטל קלט נכון?
+    const knownIds = new Set(freshStatic.map(s => String(s.id).trim().split('.')[0]));
+    const rowDetails = rows.map(r => {
+      const sid = r.fileId;
+      const inPortal = knownIds.has(sid);
+      const sent = payloadMap[sid]; // מה נשלח לשרת
+      const wasNotSent = !sent;     // לא היה ב-payload כלל
+      const e = freshExecMap[sid] || {};
+      const portalA = cleanNum(e.a2026);
+      const portalC = cleanNum(e.a2026) + cleanNum(e.commit);
+      const execMatch   = Math.abs(r.col10 - portalA) < 1;
+      const commitMatch = Math.abs(r.col12 - portalC) < 1;
+      const sentA = sent ? cleanNum(sent.a2026) : null;
+      const sentC = sent ? cleanNum(sent.a2026) + cleanNum(sent.commit) : null;
+      return { id: sid, name: r.fileName, inPortal, wasNotSent, execMatch, commitMatch, fileA: r.col10, fileC: r.col12, portalA, portalC, sentA, sentC };
+    });
+
+    const notLoaded  = rowDetails.filter(r => !r.inPortal);
+    const mismatched = rowDetails.filter(r => r.inPortal && (!r.execMatch || !r.commitMatch));
+
+    const checks = [
+      { label: 'ביצוע הכנסות (11–15)',       fileVal: fileIncomeExec,    portalVal: portalIncomeExec    },
+      { label: 'ביצוע+שריון הכנסות (11–15)', fileVal: fileIncomeCommit,  portalVal: portalIncomeCommit  },
+      { label: 'ביצוע הוצאות (16–19)',        fileVal: fileExpenseExec,   portalVal: portalExpenseExec   },
+      { label: 'ביצוע+שריון הוצאות (16–19)', fileVal: fileExpenseCommit, portalVal: portalExpenseCommit },
+    ].map(c => ({ ...c, ok: Math.abs(c.fileVal - c.portalVal) < 1 }));
+
+    const allOk = notLoaded.length === 0 && mismatched.length === 0 && checks.every(c => c.ok);
+    setUploadValidation({ checks, notLoaded, mismatched, allOk });
+    setUploadStep('post-validation');
   };
 
   const inferWingFromDept = (dept) => {
@@ -1077,6 +1147,15 @@ const App = () => {
       })
       .filter(Boolean);
 
+    // סעיפים שקיימים ב-staticData אך לא הופיעו בקובץ המועלה — מאפסים ביצוע ושריון ל-0
+    const uploadedIdsSet = new Set(rows.map(r => String(r.fileId).trim().split('.')[0]));
+    staticData.forEach(s => {
+      const sid = String(s.id).trim().split('.')[0];
+      if (!uploadedIdsSet.has(sid) && !payload.find(p => String(p.id) === sid)) {
+        payload.push({ id: sid, a2026: 0, commit: 0, isNew: false, name: s.name || '', wing: s.wing || '', dept: s.dept || '', type: s.type || 'הוצאה', a2024: 0, b2025: 0, b2026: 0 });
+      }
+    });
+
     // Debug: הצג את הסעיפים החדשים בלבד
     const newItems = payload.filter(p => p.isNew);
     console.log('isNew items to add:', newItems.length, JSON.stringify(newItems));
@@ -1092,8 +1171,15 @@ const App = () => {
       const data = await res.json();
       console.log('GAS uploadExecution response:', JSON.stringify(data));
       if (data.success) {
-        setUploadStep('done');
-        setTimeout(() => loadData(), 1500);
+        setUploadStep('uploading'); // נשאר בטעינה בזמן reload
+        // ממתינים 2 שניות כדי לאפשר ל-Google Sheet להתעדכן לפני שמושכים CSV
+        await new Promise(r => setTimeout(r, 2000));
+        const fresh = await loadData();
+        if (fresh) {
+          runPostUploadValidation(rows, payload, fresh.staticParsed, fresh.execMap);
+        } else {
+          setUploadStep('done');
+        }
       } else {
         alert('שגיאה בהעלאה: ' + (data.error || 'שגיאה כללית'));
         setUploadStep('drop');
@@ -2001,7 +2087,8 @@ const App = () => {
                                 const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                                 const currentStatus = t[`q${workplanQuarter}`];
                                 const isOverdue = isTaskOverdue(t, workplanQuarter);
-                                
+                                const isPrevQuarterMissing = workplanQuarter > 1 && !t[`q${workplanQuarter - 1}`];
+
                                 return (
                                    <tr key={t.id} className={`transition-colors group border-r-4 ${currentStatus ? `${STATUS_CONFIG[currentStatus].bg} hover:brightness-95` : 'hover:bg-slate-50/40 border-transparent'}`} style={{ borderRightColor: currentStatus ? STATUS_CONFIG[currentStatus].color : 'transparent' }}>
                                       <td className="py-4 px-5 text-[10px] font-mono text-slate-400">{t.id}</td>
@@ -2015,13 +2102,15 @@ const App = () => {
                                          {latestPrev ? (<div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[latestPrev].bg} ${STATUS_CONFIG[latestPrev].text} ${STATUS_CONFIG[latestPrev].border}`}><History size={10} className="opacity-70" />{STATUS_CONFIG[latestPrev].label} <span className="opacity-50 font-normal">(ר{prevStatuses[prevStatuses.length - 1]})</span></div>) : <span className="text-slate-300 text-xl leading-none">-</span>}
                                       </td>
                                       <td className="py-4 px-5">
-                                        {canEdit
-                                          ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
-                                          : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                        {isPrevQuarterMissing
+                                          ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-amber-50 text-amber-600 border-amber-200 cursor-not-allowed" title={`לא ניתן לעדכן — רבעון ${workplanQuarter - 1} טרם עודכן`}>🔒 לא ניתן לעדכן — יש לעדכן תחילה רבעון {workplanQuarter - 1}</div>
+                                          : canEdit
+                                            ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                            : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
                                         }
                                       </td>
                                       <td className="py-4 px-5">
-                                         {canEdit
+                                         {canEdit && !isPrevQuarterMissing
                                            ? <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all" title="לחץ לעריכת הערה"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 group-hover:text-slate-400 transition-colors" /><input type="text" placeholder="הוסף הערה..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-300 focus:placeholder:text-slate-400" /></div>
                                            : <span className="text-xs text-slate-500">{t[`n${workplanQuarter}`] || ''}</span>
                                          }
@@ -2044,6 +2133,7 @@ const App = () => {
                           const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                           const currentStatus = t[`q${workplanQuarter}`];
                           const isOverdue = isTaskOverdue(t, workplanQuarter);
+                          const isPrevQuarterMissing = workplanQuarter > 1 && !t[`q${workplanQuarter - 1}`];
                           const isExpanded = expandedCards.has(t.id);
                           const toggleExpand = () => setExpandedCards(prev => { const next = new Set(prev); next.has(t.id) ? next.delete(t.id) : next.add(t.id); return next; });
 
@@ -2056,6 +2146,7 @@ const App = () => {
                                         {currentStatus && <div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor: STATUS_CONFIG[currentStatus].color}}/>}
                                         <span className="text-[9px] font-bold text-slate-400 bg-white/60 px-1.5 py-0.5 rounded font-mono">{t.dept}</span>
                                         {isOverdue && <span className="text-[9px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">בחריגה</span>}
+                                        {isPrevQuarterMissing && <span className="text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">🔒 לא ניתן לעדכן — חסר ר{workplanQuarter - 1}</span>}
                                       </div>
                                       {t.activity && <p className="text-[10px] font-bold text-blue-600 mb-0.5 leading-snug">{t.activity}</p>}
                                       <h4 className="font-black text-slate-800 text-sm leading-snug">{t.task}</h4>
@@ -2074,15 +2165,17 @@ const App = () => {
                                          </div>
                                          <div>
                                             <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון ר{workplanQuarter}</p>
-                                            {canEdit
-                                              ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
-                                              : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                            {isPrevQuarterMissing
+                                              ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-slate-50 text-slate-400 border-slate-200">🔒 טרם עודכן ר{workplanQuarter - 1}</div>
+                                              : canEdit
+                                                ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
+                                                : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
                                             }
                                          </div>
                                       </div>
                                       <div>
                                          <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות</p>
-                                         {canEdit
+                                         {canEdit && !isPrevQuarterMissing
                                            ? <textarea rows={2} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white/80 border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none" />
                                            : <p className="text-xs text-slate-600">{t[`n${workplanQuarter}`] || <span className="text-slate-400">אין הערות</span>}</p>
                                          }
@@ -2123,6 +2216,111 @@ const App = () => {
                 <X size={18} />
               </button>
             </div>
+
+            {/* Step: post-validation — בדיקה אחרי הטעינה */}
+            {uploadStep === 'post-validation' && uploadValidation && (
+              <div className="p-6 max-h-[75vh] overflow-y-auto space-y-5">
+                {/* סטטוס כללי */}
+                <div className={`flex items-center gap-3 p-3 rounded-xl ${uploadValidation.allOk ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                  <span className="text-xl">{uploadValidation.allOk ? '✅' : '⚠️'}</span>
+                  <p className="font-black text-sm">{uploadValidation.allOk ? 'הטעינה הצליחה — כל הנתונים תואמים' : 'הטעינה הושלמה — נמצאו אי-התאמות'}</p>
+                </div>
+
+                {/* בדיקה 1: סעיפים שלא נטענו */}
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">סעיפים שלא נטענו לפורטל</p>
+                  {uploadValidation.notLoaded.length === 0
+                    ? <div className="text-emerald-600 text-xs font-bold bg-emerald-50 px-3 py-2 rounded-lg">✅ כל הסעיפים נטענו</div>
+                    : <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                        <p className="text-red-700 font-black text-xs mb-2">❌ {uploadValidation.notLoaded.length} סעיפים לא נמצאו בפורטל ולא נטענו:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {uploadValidation.notLoaded.map(r => (
+                            <span key={r.id} className="text-[10px] font-mono font-bold bg-red-100 text-red-700 px-2 py-0.5 rounded">{r.id}{r.name ? ` — ${r.name}` : ''}</span>
+                          ))}
+                        </div>
+                      </div>
+                  }
+                </div>
+
+                {/* בדיקה 2: סעיפים עם ערכים שונים */}
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">סעיפים עם ערכים שלא השתנו כמצופה</p>
+                  {uploadValidation.mismatched.length === 0
+                    ? <div className="text-emerald-600 text-xs font-bold bg-emerald-50 px-3 py-2 rounded-lg">✅ כל הערכים עודכנו כראוי</div>
+                    : <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden">
+                        <table className="w-full text-[11px]">
+                          <thead><tr className="bg-amber-100 text-[10px] font-black text-amber-700 uppercase">
+                            <th className="py-1.5 px-3 text-right">סעיף</th>
+                            <th className="py-1.5 px-2 text-left">קובץ</th>
+                            <th className="py-1.5 px-2 text-left">נשלח לשרת</th>
+                            <th className="py-1.5 px-2 text-left">פורטל</th>
+                            <th className="py-1.5 px-2 text-center">סיבה</th>
+                          </tr></thead>
+                          <tbody className="divide-y divide-amber-100">
+                            {uploadValidation.mismatched.map(r => (
+                              <tr key={r.id} className="bg-white">
+                                <td className="py-1.5 px-3 font-mono text-slate-700 font-bold text-[10px]">{r.id}</td>
+                                <td className="py-1.5 px-2 font-mono text-slate-500 text-[10px]">
+                                  <div>ב: {formatILS(r.fileA)}</div>
+                                  <div>ב+ש: {formatILS(r.fileC)}</div>
+                                </td>
+                                <td className="py-1.5 px-2 font-mono text-[10px]">
+                                  {r.wasNotSent
+                                    ? <span className="text-red-600 font-black">לא נשלח!</span>
+                                    : <><div className={r.execMatch ? 'text-slate-500' : 'text-orange-600 font-bold'}>ב: {formatILS(r.sentA)}</div>
+                                       <div className={r.commitMatch ? 'text-slate-500' : 'text-orange-600 font-bold'}>ב+ש: {formatILS(r.sentC)}</div></>
+                                  }
+                                </td>
+                                <td className="py-1.5 px-2 font-mono text-[10px]">
+                                  <div className={r.execMatch ? 'text-slate-500' : 'text-red-600 font-bold'}>ב: {formatILS(r.portalA)}</div>
+                                  <div className={r.commitMatch ? 'text-slate-500' : 'text-red-600 font-bold'}>ב+ש: {formatILS(r.portalC)}</div>
+                                </td>
+                                <td className="py-1.5 px-2 text-center text-[10px]">
+                                  {r.wasNotSent
+                                    ? <span className="text-red-600 font-black" title="הסעיף לא נמצא ב-staticData בזמן ה-upload">ID לא הוכר</span>
+                                    : r.sentA === r.portalA
+                                      ? <span className="text-blue-600 font-bold" title="הערך נשלח נכון אך הפורטל לא עדכן — ייתכן עיכוב ב-Google Sheet">⏱ עיכוב סנכרון</span>
+                                      : <span className="text-orange-600 font-bold">שגיאת שרת</span>
+                                  }
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                  }
+                </div>
+
+                {/* בדיקות 3–6: השוואת סכומים */}
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">השוואת סכומים — קובץ מול פורטל אחרי טעינה</p>
+                  <div className="rounded-xl border border-slate-100 overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead><tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase">
+                        <th className="py-2 px-3 text-right">פריט</th>
+                        <th className="py-2 px-3 text-left">קובץ (עמ׳ 10/12)</th>
+                        <th className="py-2 px-3 text-left">פורטל</th>
+                        <th className="py-2 px-3 text-center w-28">תוצאה</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {uploadValidation.checks.map((c, i) => (
+                          <tr key={i} className={c.ok ? 'bg-white' : 'bg-amber-50'}>
+                            <td className="py-2.5 px-3 font-bold text-slate-700 text-[11px]">{c.label}</td>
+                            <td className="py-2.5 px-3 text-left font-mono text-slate-600">{formatILS(c.fileVal)}</td>
+                            <td className="py-2.5 px-3 text-left font-mono text-slate-600">{formatILS(c.portalVal)}</td>
+                            <td className="py-2.5 px-3 text-center">{c.ok ? '✅' : <span className="text-amber-600 font-black text-[10px]">⚠️ {formatILS(Math.abs(c.fileVal - c.portalVal))}</span>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <button onClick={() => setShowUploadModal(false)} className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-black text-sm transition-colors">
+                  סגור
+                </button>
+              </div>
+            )}
 
             {/* Step: drop */}
             {uploadStep === 'drop' && (
