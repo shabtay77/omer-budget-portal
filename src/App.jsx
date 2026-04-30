@@ -2308,7 +2308,7 @@ const App = () => {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 py-1 text-xs font-bold text-slate-500">
-                      <span>מציג <span className="text-slate-800">{sortedWorkData.length}</span> משימות</span>
+                      <span>מציג <span className="text-slate-800">{sortedWorkData.length}</span> מתוך <span className="text-slate-800">{workStats.total}</span> משימות</span>
                       <span className="text-slate-200 hidden sm:inline">|</span>
                       <span className="hidden sm:inline text-emerald-600">{workStats.s1} בוצע</span>
                       <span className="text-slate-200 hidden sm:inline">|</span>
@@ -2317,6 +2317,47 @@ const App = () => {
                       <span className="hidden sm:inline text-red-500">{workStats.s3} עצירה</span>
                       {workStats.overdue > 0 && <><span className="text-slate-200 hidden sm:inline">|</span><span className="hidden sm:inline text-red-600 font-black">{workStats.overdue} בחריגת תאריך</span></>}
                     </div>
+
+                    {/* באנר סינון פעיל */}
+                    {(filterStatus !== null || showOnlyOverdueTasks || filterDept !== 'הכל' || search) && (
+                      <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-blue-600 text-white shadow-md shadow-blue-200 animate-in fade-in duration-200">
+                        <Filter size={15} className="shrink-0 text-blue-200" />
+                        <span className="text-xs font-black text-blue-100 shrink-0">סינון פעיל:</span>
+                        <div className="flex flex-wrap gap-2 flex-1">
+                          {filterStatus === 0 && (
+                            <span className="flex items-center gap-1 bg-white/20 px-2.5 py-1 rounded-lg text-xs font-black">
+                              טרם עודכן <button onClick={() => setFilterStatus(null)}><X size={10} className="opacity-70 hover:opacity-100"/></button>
+                            </span>
+                          )}
+                          {filterStatus !== null && filterStatus !== 0 && (
+                            <span className="flex items-center gap-1 bg-white/20 px-2.5 py-1 rounded-lg text-xs font-black">
+                              {STATUS_CONFIG[filterStatus].label} <button onClick={() => setFilterStatus(null)}><X size={10} className="opacity-70 hover:opacity-100"/></button>
+                            </span>
+                          )}
+                          {showOnlyOverdueTasks && (
+                            <span className="flex items-center gap-1 bg-white/20 px-2.5 py-1 rounded-lg text-xs font-black">
+                              חריגות בלבד <button onClick={() => setShowOnlyOverdueTasks(false)}><X size={10} className="opacity-70 hover:opacity-100"/></button>
+                            </span>
+                          )}
+                          {filterDept !== 'הכל' && (
+                            <span className="flex items-center gap-1 bg-white/20 px-2.5 py-1 rounded-lg text-xs font-black">
+                              {filterDept} <button onClick={() => setFilterDept('הכל')}><X size={10} className="opacity-70 hover:opacity-100"/></button>
+                            </span>
+                          )}
+                          {search && (
+                            <span className="flex items-center gap-1 bg-white/20 px-2.5 py-1 rounded-lg text-xs font-black">
+                              "{search}" <button onClick={() => setSearch('')}><X size={10} className="opacity-70 hover:opacity-100"/></button>
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => { setFilterStatus(null); setShowOnlyOverdueTasks(false); setFilterDept('הכל'); setSearch(''); }}
+                          className="shrink-0 bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-xs font-black transition-colors"
+                        >
+                          נקה הכל
+                        </button>
+                      </div>
+                    )}
 
                     {workplanQuarter > 0 && isQuarterLocked(workplanQuarter) && (
                       <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm font-bold ${currentUser?.role === 'ADMIN' ? 'bg-blue-50 border-blue-200 text-blue-700' : canEditQuarter(workplanQuarter) ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
