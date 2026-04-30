@@ -19,6 +19,29 @@ const CACHE_KEY = 'omer_portal_v3';
 const SESSION_KEY = 'omer_session_v1';
 const SESSION_TIMEOUT = 8 * 60 * 60 * 1000; // 8 שעות
 
+const QUARTER_LOCK_DATES = {
+  1: new Date('2026-05-05T00:00:00'),
+  2: new Date('2026-08-05T00:00:00'),
+  3: new Date('2026-11-05T00:00:00'),
+  4: new Date('2027-02-05T00:00:00'),
+};
+// תחילת חלון התזכורת = יום ראשון אחרי סוף כל רבעון
+const QUARTER_REMINDER_START = {
+  1: new Date('2026-04-01T00:00:00'),
+  2: new Date('2026-07-01T00:00:00'),
+  3: new Date('2026-10-01T00:00:00'),
+  4: new Date('2027-01-01T00:00:00'),
+};
+const isQuarterLocked = (q) => !!QUARTER_LOCK_DATES[q] && new Date() >= QUARTER_LOCK_DATES[q];
+const QUARTER_LOCK_LABEL = { 1: '5/5/2026', 2: '5/8/2026', 3: '5/11/2026', 4: '5/2/2027' };
+const getActiveReminderQuarter = () => {
+  const now = new Date();
+  for (const q of [1, 2, 3, 4]) {
+    if (now >= QUARTER_REMINDER_START[q] && now < QUARTER_LOCK_DATES[q]) return Number(q);
+  }
+  return null;
+};
+
 const ICONS = {
   'ראש הרשות': UserRound,
   'הנהלה': Building2,
@@ -277,6 +300,8 @@ const App = () => {
   const [showOnlyBudgetAlerts, setShowOnlyBudgetAlerts] = useState(false);
   const [hasSeenWorkplanPopup, setHasSeenWorkplanPopup] = useState(false);
   const [hasSeenBudgetPopup, setHasSeenBudgetPopup] = useState(false);
+  const [quarterUpdateReminder, setQuarterUpdateReminder] = useState(null); // { quarter, count, daysLeft }
+  const [hasSeenQuarterReminder, setHasSeenQuarterReminder] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
   const [expandedCards, setExpandedCards] = useState(new Set());
@@ -311,6 +336,32 @@ const App = () => {
   const isAharony = currentUser?.user === 'aharony';
   const canEdit   = currentUser?.permissions !== 'VIEW';
   const canUpload = !!currentUser?.addUser;
+
+  const canEditQuarter = (q) => {
+    if (currentUser?.role === 'ADMIN') return true;
+    if (!canEdit) return false;
+    if (!isQuarterLocked(q)) return true;
+    return !!(currentUser?.[`q${q}`]);
+  };
+
+  const toggleQuarterPermission = async (user, q) => {
+    const updated = { ...user, [`q${q}`]: !user[`q${q}`] };
+    setUsersList(prev => prev.map(u => u.id === user.id ? updated : u));
+    try {
+      await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'updateUser', ...updated,
+          target1: updated.role === 'ADMIN' ? '' : updated.target1,
+          target2: updated.role === 'ADMIN' ? '' : updated.target2,
+          active: String(updated.active || 'TRUE').toUpperCase()
+        })
+      });
+    } catch (err) {
+      console.error('שגיאה בשמירת הרשאת רבעון:', err);
+      setUsersList(prev => prev.map(u => u.id === user.id ? user : u));
+    }
+  };
 
   const userTargets = (user) => [user?.target1, user?.target2].map(normalizeKey).filter(Boolean);
   const matchesUserTargets = (value, user) => {
@@ -544,6 +595,7 @@ const App = () => {
         setViewMode('dashboard');
         setHasSeenBudgetPopup(false);
         setHasSeenWorkplanPopup(false);
+        setHasSeenQuarterReminder(false);
         setWorkplanQuarter(0);
         if (data.user.role === 'WING') setActiveWingId(cleanStr(data.user.target1) || null);
         else setActiveWingId(null);
@@ -563,6 +615,9 @@ const App = () => {
     setIsLoggedIn(false);
     setCurrentUser(null);
     setWorkplanQuarter(0);
+    setHasSeenQuarterReminder(false);
+    setHasSeenWorkplanPopup(false);
+    setHasSeenBudgetPopup(false);
     setUInput('');
     setPInput('');
   };
@@ -654,6 +709,23 @@ const App = () => {
       if (overdue > 0) { setPopupCount(overdue); setActivePopup('workplan'); setHasSeenWorkplanPopup(true); }
     }
   }, [loading, mainTab, viewMode, activeWingId, workPlans, hasSeenWorkplanPopup, currentUser, workplanQuarter, filterStatus, showOnlyOverdueTasks]);
+
+  // תזכורת עדכון רבעוני — מוצגת פעם אחת בסשן בכניסה לתכניות עבודה
+  useEffect(() => {
+    if (loading || mainTab !== 'workplan' || hasSeenQuarterReminder || !workPlans.length || !currentUser) return;
+    const q = getActiveReminderQuarter();
+    if (!q) return;
+    const missing = workPlans.filter(t => {
+      if (currentUser.role === 'WING' && !matchesUserTargets(t.wing, currentUser)) return false;
+      if (currentUser.role === 'DEPT' && !matchesUserTargets(t.dept, currentUser)) return false;
+      return !t[`q${q}`];
+    }).length;
+    if (missing === 0) return;
+    const lockDate = QUARTER_LOCK_DATES[q];
+    const daysLeft = Math.ceil((lockDate - new Date()) / (1000 * 60 * 60 * 24));
+    setQuarterUpdateReminder({ quarter: q, count: missing, daysLeft });
+    setHasSeenQuarterReminder(true);
+  }, [loading, mainTab, workPlans, currentUser, hasSeenQuarterReminder]);
 
     const fullBudgetData = useMemo(() => {
     let data = staticData;
@@ -769,7 +841,8 @@ const App = () => {
     return Array.from(new Set(pool.map((t) => t.dept))).filter(Boolean).sort();
   }, [workPlans, activeWingId, currentUser]);
 
-  const filteredWorkData = useMemo(() => {
+  // נתוני בסיס ללא פילטר סטטוס — לסטטיסטיקות ולגרפים בדשבורד
+  const baseWorkData = useMemo(() => {
     let data = workPlans;
     if (currentUser?.role === 'WING') data = data.filter((t) => matchesUserTargets(t.wing, currentUser));
     if (currentUser?.role === 'DEPT') data = data.filter((t) => matchesUserTargets(t.dept, currentUser));
@@ -777,40 +850,67 @@ const App = () => {
     if (filterDept !== 'הכל') data = data.filter((t) => sameKey(t.dept, filterDept));
     if (search) {
       const q = cleanStr(search).toLowerCase();
-      data = data.filter((t) => 
-        cleanStr(t.task).toLowerCase().includes(q) || 
-        cleanStr(t.activity).toLowerCase().includes(q) || 
-        cleanStr(t.dept).toLowerCase().includes(q) || 
+      data = data.filter((t) =>
+        cleanStr(t.task).toLowerCase().includes(q) ||
+        cleanStr(t.activity).toLowerCase().includes(q) ||
+        cleanStr(t.dept).toLowerCase().includes(q) ||
         String(t.id).includes(q)
       );
     }
     if (showOnlyOverdueTasks) data = data.filter((t) => isTaskOverdue(t, workplanQuarter));
-    if (filterStatus !== null) data = data.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === filterStatus);
     return data;
-  }, [workPlans, currentUser, activeWingId, filterDept, search, showOnlyOverdueTasks, filterStatus, workplanQuarter]);
+  }, [workPlans, currentUser, activeWingId, filterDept, search, showOnlyOverdueTasks, workplanQuarter]);
+
+  // נתונים לטבלה — כולל פילטר סטטוס (0 = טרם עודכן)
+  const filteredWorkData = useMemo(() => {
+    if (filterStatus === null) return baseWorkData;
+    if (filterStatus === 0) return baseWorkData.filter((t) => !(workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]));
+    return baseWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === filterStatus);
+  }, [baseWorkData, filterStatus, workplanQuarter]);
 
   const sortedWorkData = useMemo(() => {
     if (sortOrder === 'default') return filteredWorkData;
     return [...filteredWorkData].sort((a, b) => {
       const dateA = parseDateLogic(a.deadline) || new Date(2100, 0, 1);
       const dateB = parseDateLogic(b.deadline) || new Date(2100, 0, 1);
-      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA; 
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
     });
   }, [filteredWorkData, sortOrder]);
 
+  // סטטיסטיקות תמיד מנתוני הבסיס (ללא פילטר סטטוס) — כדי שהכרטיסיות יציגו נתון אמיתי
   const workStats = useMemo(() => {
-    const total = filteredWorkData.length || 0;
-    const s1 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 1).length;
-    const s2 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 2).length;
-    const s3 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 3).length;
-    const s4 = filteredWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 4).length;
-    const overdueCount = filteredWorkData.filter((t) => isTaskOverdue(t, workplanQuarter)).length;
+    const total = baseWorkData.length || 0;
+    const s1 = baseWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 1).length;
+    const s2 = baseWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 2).length;
+    const s3 = baseWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 3).length;
+    const s4 = baseWorkData.filter((t) => (workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`]) === 4).length;
+    const overdueCount = baseWorkData.filter((t) => isTaskOverdue(t, workplanQuarter)).length;
     const m = total - (s1 + s2 + s3 + s4);
     return {
       total, s1, s2, s3, s4, m, overdue: overdueCount,
       p1: Math.round((s1 / total) * 100) || 0, p2: Math.round((s2 / total) * 100) || 0, p3: Math.round((s3 / total) * 100) || 0, pM: Math.round((m / total) * 100) || 0
     };
-  }, [filteredWorkData, workplanQuarter]);
+  }, [baseWorkData, workplanQuarter]);
+
+  // מטריצת השלמת רבעונים לפי אגף/מחלקה
+  const quarterCompletionMatrix = useMemo(() => {
+    const scopeData = workPlans.filter(t => {
+      if (currentUser?.role === 'WING') return matchesUserTargets(t.wing, currentUser);
+      if (currentUser?.role === 'DEPT') return matchesUserTargets(t.dept, currentUser);
+      return true;
+    }).filter(t => activeWingId ? sameKey(t.wing, activeWingId) : true);
+
+    const groupKey = (activeWingId || currentUser?.role === 'WING' || currentUser?.role === 'DEPT') ? 'dept' : 'wing';
+    const units = Array.from(new Set(scopeData.map(t => cleanStr(t[groupKey])))).filter(Boolean).sort();
+
+    return units.map(unit => {
+      const tasks = scopeData.filter(t => sameKey(t[groupKey], unit));
+      const total = tasks.length;
+      if (!total) return null;
+      const pct = (q) => Math.round(tasks.filter(t => !!t[`q${q}`]).length / total * 100);
+      return { name: unit, total, q1: pct(1), q2: pct(2), q3: pct(3), q4: pct(4) };
+    }).filter(Boolean);
+  }, [workPlans, currentUser, activeWingId]);
 
   // ספירת משימות בפיגור לכלל המשימות של המשתמש — לbadge בניווט
   const overdueTasksCount = useMemo(() => {
@@ -1300,6 +1400,8 @@ const App = () => {
                 {[1, 2, 3, 4].map(q => {
                   const currentQ = Math.ceil((new Date().getMonth() + 1) / 3);
                   const isCurrent = q === currentQ;
+                  const locked = isQuarterLocked(q);
+                  const editAllowed = canEditQuarter(q);
                   return (
                     <button
                       key={q}
@@ -1308,11 +1410,57 @@ const App = () => {
                     >
                       רבעון {q}
                       {isCurrent && <div className="text-[10px] font-bold text-blue-200 mt-0.5">נוכחי</div>}
+                      {locked && <div className={`text-[10px] font-bold mt-0.5 ${isCurrent ? 'text-blue-200' : editAllowed ? 'text-emerald-600' : 'text-slate-400'}`}>{editAllowed ? '🔓 פתוח' : '🔒 נעול'}</div>}
                     </button>
                   );
                 })}
               </div>
               <button onClick={() => setShowQuarterPicker(false)} className="w-full py-3 text-slate-400 font-bold text-sm hover:text-slate-600 transition-colors">ביטול</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* תזכורת עדכון רבעוני */}
+      {quarterUpdateReminder && (
+        <div className="fixed inset-0 z-[1100] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-gradient-to-br from-amber-500 to-orange-500 p-6 text-center text-white">
+              <div className="text-4xl mb-3">⏰</div>
+              <h3 className="text-xl font-black">תזכורת עדכון רבעון {quarterUpdateReminder.quarter}</h3>
+              <p className="text-amber-100 text-sm mt-1 font-bold">
+                {quarterUpdateReminder.daysLeft > 0
+                  ? `נותרו ${quarterUpdateReminder.daysLeft} ימים עד לנעילה (${QUARTER_LOCK_LABEL[quarterUpdateReminder.quarter]})`
+                  : `מועד הנעילה: ${QUARTER_LOCK_LABEL[quarterUpdateReminder.quarter]}`}
+              </p>
+            </div>
+            <div className="p-7 text-center">
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
+                <p className="text-4xl font-black text-amber-600 mb-1">{quarterUpdateReminder.count}</p>
+                <p className="text-sm font-bold text-slate-600">
+                  משימות שטרם עודכנו לרבעון {quarterUpdateReminder.quarter}
+                </p>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={() => {
+                    setQuarterUpdateReminder(null);
+                    setHasSeenWorkplanPopup(true);
+                    setWorkplanQuarter(quarterUpdateReminder.quarter);
+                    setFilterStatus(0);
+                    setViewMode('table');
+                  }}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black py-3.5 rounded-2xl transition-colors shadow-md shadow-amber-200"
+                >
+                  עבור לעדכון רבעון {quarterUpdateReminder.quarter} ←
+                </button>
+                <button
+                  onClick={() => setQuarterUpdateReminder(null)}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold py-3 rounded-2xl transition-colors text-sm"
+                >
+                  סגור — אעדכן מאוחר יותר
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1580,7 +1728,8 @@ const App = () => {
                           <div className="bg-slate-50 text-slate-400 font-mono text-[10px] py-1 px-2 rounded-md shrink-0 self-start xl:self-center">#{u.id}</div>
                           
                           {/* גריד דינמי: 6 עמודות לאדמין, 8 עמודות לאחרים */}
-                          <div className={`grid gap-2 flex-1 w-full ${isAd ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'}`}>
+                          <div className="flex-1 flex flex-col gap-0 min-w-0">
+                          <div className={`grid gap-2 w-full ${isAd ? 'grid-cols-2 lg:grid-cols-6' : 'grid-cols-2 lg:grid-cols-4 xl:grid-cols-8'}`}>
 
                             <div className="min-w-0">
                               <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">שם משתמש</span>
@@ -1639,6 +1788,38 @@ const App = () => {
                               </>
                             )}
                           </div>
+
+                          {u.role !== 'ADMIN' && (
+                            <div className="mt-3 pt-3 border-t border-slate-100">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-1.5 uppercase tracking-widest">עריכה לאחר נעילת רבעון</span>
+                              <div className="flex flex-wrap gap-2">
+                                {[1, 2, 3, 4].map(q => {
+                                  const locked = isQuarterLocked(q);
+                                  const unlocked = !!(u[`q${q}`]);
+                                  return (
+                                    <button
+                                      key={q}
+                                      onClick={() => locked && toggleQuarterPermission(u, q)}
+                                      title={locked ? (unlocked ? 'לחץ לנעילה' : 'לחץ לפתיחת עריכה') : `יינעל ב-${QUARTER_LOCK_LABEL[q]}`}
+                                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${
+                                        !locked
+                                          ? 'bg-slate-50 text-slate-400 border-slate-200 cursor-default'
+                                          : unlocked
+                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                                            : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+                                      }`}
+                                    >
+                                      <span>{!locked ? '⏳' : unlocked ? '🔓' : '🔒'}</span>
+                                      <span>ר{q}</span>
+                                      {locked && <span className="opacity-60">{unlocked ? 'פתוח' : 'נעול'}</span>}
+                                      {!locked && <span className="opacity-50">{QUARTER_LOCK_LABEL[q]}</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          </div>{/* /flex-1 wrapper */}
 
                           <div className="flex w-full xl:w-auto gap-2 shrink-0 mt-2 xl:mt-0">
                             <button onClick={() => updateUserRow(u)} className="flex-1 xl:flex-none bg-blue-50 text-blue-700 px-5 py-2 rounded-md font-bold text-xs border border-blue-200 transition-colors hover:bg-blue-100">שמור</button>
@@ -1910,13 +2091,13 @@ const App = () => {
 
                 {viewMode === 'dashboard' ? (
                   <>
-                    <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 lg:gap-4 mb-6">
+                    <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 lg:gap-4 mb-6">
                       <div
                         className={`p-5 rounded-2xl shadow-lg flex flex-col justify-center text-center cursor-pointer transition-all ${filterStatus === null && !showOnlyOverdueTasks ? 'bg-slate-900 text-white shadow-slate-900/10' : 'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}
                         onClick={() => { setFilterStatus(null); setShowOnlyOverdueTasks(false); }}
                         title="הצג הכל — נקה סינון"
                       >
-                        <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 ${filterStatus === null && !showOnlyOverdueTasks ? 'text-slate-400' : 'text-slate-400'}`}>סה"כ</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest mb-1 text-slate-400">סה"כ</p>
                         <p className="text-3xl font-black">{workStats.total}</p>
                         <p className={`text-[9px] font-bold mt-1 ${filterStatus === null && !showOnlyOverdueTasks ? 'text-slate-400' : 'text-slate-400'}`}>{filterStatus !== null || showOnlyOverdueTasks ? 'לחץ לנקות סינון' : 'כל המשימות'}</p>
                       </div>
@@ -1930,6 +2111,17 @@ const App = () => {
                         </div>
                         <p className="text-3xl font-black">{workStats.overdue}</p>
                         <p className={`text-[9px] font-bold mt-1 ${showOnlyOverdueTasks ? 'text-red-200' : 'text-red-400'}`}>{showOnlyOverdueTasks ? 'סינון פעיל — לחץ לביטול' : 'לחץ לסינון'}</p>
+                      </div>
+                      <div
+                        className={`p-5 rounded-2xl border flex flex-col justify-center text-center shadow-sm cursor-pointer transition-all ${filterStatus === 0 ? 'bg-violet-600 text-white border-violet-600 ring-2 ring-violet-400 ring-offset-2 scale-[1.02]' : 'bg-violet-50 text-violet-700 border-violet-100 hover:bg-violet-100'}`}
+                        onClick={() => setFilterStatus(filterStatus === 0 ? null : 0)}
+                      >
+                        <div className="flex justify-center items-center gap-1.5 mb-1">
+                          <ClipboardList size={14} className={filterStatus === 0 ? 'text-violet-200' : 'text-violet-500'} />
+                          <p className={`text-[10px] font-bold uppercase tracking-widest ${filterStatus === 0 ? 'text-violet-200' : 'text-violet-600'}`}>טרם עודכן</p>
+                        </div>
+                        <p className="text-3xl font-black">{workStats.m}</p>
+                        <p className={`text-[9px] font-bold mt-1 ${filterStatus === 0 ? 'text-violet-200' : 'text-violet-400'}`}>{filterStatus === 0 ? 'סינון פעיל — לחץ לביטול' : 'לחץ לסינון'}</p>
                       </div>
                       {[
                         { s: 1, title: 'בוצע',    icon: CheckCircle2, val: `${workStats.p1}%`, count: workStats.s1,  ring: 'ring-emerald-400' },
@@ -1956,10 +2148,15 @@ const App = () => {
                       <div className="flex items-center gap-2 mb-2 px-1">
                         <span className="text-[11px] font-bold text-slate-500">הדאשבורד מציג:</span>
                         {filterStatus !== null && (
-                          <span className={`flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full ${STATUS_CONFIG[filterStatus].bg} ${STATUS_CONFIG[filterStatus].text} border ${STATUS_CONFIG[filterStatus].border}`}>
-                            {STATUS_CONFIG[filterStatus].label} בלבד
-                            <button onClick={() => setFilterStatus(null)}><X size={11} /></button>
-                          </span>
+                          filterStatus === 0
+                            ? <span className="flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+                                טרם עודכן בלבד
+                                <button onClick={() => setFilterStatus(null)}><X size={11} /></button>
+                              </span>
+                            : <span className={`flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full ${STATUS_CONFIG[filterStatus].bg} ${STATUS_CONFIG[filterStatus].text} border ${STATUS_CONFIG[filterStatus].border}`}>
+                                {STATUS_CONFIG[filterStatus].label} בלבד
+                                <button onClick={() => setFilterStatus(null)}><X size={11} /></button>
+                              </span>
                         )}
                         {showOnlyOverdueTasks && (
                           <span className="flex items-center gap-1.5 text-[11px] font-black px-3 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
@@ -1987,7 +2184,7 @@ const App = () => {
                           <h3 className="font-black text-slate-800 mb-6 text-sm">עומס משימות לפי {activeWingId ? 'מחלקה' : 'אגף'}</h3>
                           <div dir="ltr">
                             <ResponsiveContainer width="100%" height={260}>
-                               <BarChart layout="vertical" data={Array.from(new Set(filteredWorkData.map((t) => (activeWingId ? t.dept : t.wing)))).map((name) => ({ n: name, v: filteredWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length }))} margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
+                               <BarChart layout="vertical" data={Array.from(new Set(baseWorkData.map((t) => (activeWingId ? t.dept : t.wing)))).map((name) => ({ n: name, v: baseWorkData.filter((t) => (activeWingId ? t.dept : t.wing) === name).length }))} margin={{ top: 0, right: 40, left: 0, bottom: 0 }}>
                                   <XAxis type="number" hide />
                                   <YAxis dataKey="n" type="category" width={140} axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 'bold', fill: '#475569' }} tickFormatter={(v) => v.length > 16 ? v.slice(0, 15) + '…' : v} />
                                   <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'10px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.05)'}} />
@@ -1997,6 +2194,58 @@ const App = () => {
                           </div>
                        </div>
                     </div>
+
+                    {/* מטריצת השלמת רבעונים */}
+                    {quarterCompletionMatrix.length > 0 && (
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+                        <h3 className="font-black text-slate-800 mb-5 text-sm">
+                          השלמת עדכון רבעוני — לפי {(activeWingId || currentUser?.role === 'WING' || currentUser?.role === 'DEPT') ? 'מחלקה' : 'אגף'}
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-right text-sm">
+                            <thead>
+                              <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                <th className="pb-3 pr-0 font-black">{(activeWingId || currentUser?.role === 'WING' || currentUser?.role === 'DEPT') ? 'מחלקה' : 'אגף'}</th>
+                                <th className="pb-3 px-4 text-center">משימות</th>
+                                {[1, 2, 3, 4].map(q => (
+                                  <th key={q} className="pb-3 px-4 text-center">
+                                    ר{q}
+                                    {isQuarterLocked(q) && <span className="mr-1 text-slate-300">🔒</span>}
+                                    {!isQuarterLocked(q) && <span className="mr-1 opacity-40">⏳</span>}
+                                    <div className="text-[8px] font-bold text-slate-300 normal-case tracking-normal">{QUARTER_LOCK_LABEL[q]}</div>
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {quarterCompletionMatrix.map(row => (
+                                <tr key={row.name} className="hover:bg-slate-50/50 transition-colors">
+                                  <td className="py-3 pr-0 font-bold text-slate-700 text-xs">{row.name}</td>
+                                  <td className="py-3 px-4 text-center text-[11px] font-bold text-slate-400">{row.total}</td>
+                                  {[1, 2, 3, 4].map(q => {
+                                    const pct = row[`q${q}`];
+                                    const color = pct === 100 ? 'bg-emerald-100 text-emerald-700' : pct >= 50 ? 'bg-amber-100 text-amber-700' : pct > 0 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400';
+                                    return (
+                                      <td key={q} className="py-3 px-4 text-center">
+                                        <span className={`inline-block min-w-[52px] px-2 py-1 rounded-lg text-[11px] font-black ${color}`}>
+                                          {pct === 100 ? '✓ הושלם' : pct > 0 ? `${pct}%` : '—'}
+                                        </span>
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex items-center gap-4 mt-4 pt-4 border-t border-slate-50 text-[10px] font-bold text-slate-400">
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-emerald-100 inline-block"></span>הושלם (100%)</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-100 inline-block"></span>חלקי (50%+)</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-100 inline-block"></span>התחיל (&lt;50%)</span>
+                          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-100 inline-block"></span>טרם הוזן</span>
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="space-y-4">
@@ -2031,6 +2280,15 @@ const App = () => {
                               {workStats.total}
                             </span>
                           </button>
+                          <button onClick={() => setFilterStatus(filterStatus === 0 ? null : 0)}
+                            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${
+                              filterStatus === 0 ? 'bg-violet-100 text-violet-700 border-violet-300 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                            }`}
+                          >
+                            טרם עודכן
+                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${filterStatus === 0 ? 'bg-violet-200 text-violet-700' : 'bg-slate-200 text-slate-500'}`}>{workStats.m}</span>
+                            {filterStatus === 0 && <X size={11} className="mr-0.5 opacity-70"/>}
+                          </button>
                           {[1,2,3,4].map(s => (
                             <button key={s} onClick={() => setFilterStatus(filterStatus === s ? null : s)}
                               className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 border transition-all ${
@@ -2059,6 +2317,21 @@ const App = () => {
                       <span className="hidden sm:inline text-red-500">{workStats.s3} עצירה</span>
                       {workStats.overdue > 0 && <><span className="text-slate-200 hidden sm:inline">|</span><span className="hidden sm:inline text-red-600 font-black">{workStats.overdue} בחריגת תאריך</span></>}
                     </div>
+
+                    {workplanQuarter > 0 && isQuarterLocked(workplanQuarter) && (
+                      <div className={`flex items-center gap-3 px-4 py-3 rounded-2xl border text-sm font-bold ${currentUser?.role === 'ADMIN' ? 'bg-blue-50 border-blue-200 text-blue-700' : canEditQuarter(workplanQuarter) ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+                        <span className="text-base">{currentUser?.role === 'ADMIN' || canEditQuarter(workplanQuarter) ? '🔓' : '🔒'}</span>
+                        <span>
+                          {currentUser?.role === 'ADMIN'
+                            ? `רבעון ${workplanQuarter} נעול (מ-${QUARTER_LOCK_LABEL[workplanQuarter]}) — לך כמנהל יש גישת עריכה מלאה`
+                            : canEditQuarter(workplanQuarter)
+                              ? `רבעון ${workplanQuarter} נעול (מ-${QUARTER_LOCK_LABEL[workplanQuarter]}) — הגישה שלך נפתחה על-ידי המנהל`
+                              : `רבעון ${workplanQuarter} נעול החל מ-${QUARTER_LOCK_LABEL[workplanQuarter]} — לפתיחת גישה פנה למנהל`
+                          }
+                        </span>
+                      </div>
+                    )}
+
                     <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-32">
                        <table className="w-full text-right relative">
                           <thead>
@@ -2104,13 +2377,15 @@ const App = () => {
                                       <td className="py-4 px-5">
                                         {isPrevQuarterMissing
                                           ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-amber-50 text-amber-600 border-amber-200 cursor-not-allowed" title={`לא ניתן לעדכן — רבעון ${workplanQuarter - 1} טרם עודכן`}>🔒 לא ניתן לעדכן — יש לעדכן תחילה רבעון {workplanQuarter - 1}</div>
-                                          : canEdit
+                                          : canEditQuarter(workplanQuarter)
                                             ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
-                                            : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                            : isQuarterLocked(workplanQuarter) && canEdit
+                                              ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-slate-50 text-slate-500 border-slate-200 cursor-not-allowed">🔒 רבעון {workplanQuarter} נעול</div>
+                                              : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
                                         }
                                       </td>
                                       <td className="py-4 px-5">
-                                         {canEdit && !isPrevQuarterMissing
+                                         {canEditQuarter(workplanQuarter) && !isPrevQuarterMissing
                                            ? <div className="relative group-hover:shadow-inner bg-slate-50 rounded-xl transition-all" title="לחץ לעריכת הערה"><MessageSquare size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 group-hover:text-slate-400 transition-colors" /><input type="text" placeholder="הוסף הערה..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-transparent border border-transparent focus:border-blue-200 focus:bg-white focus:ring-2 focus:ring-blue-100 rounded-xl py-2 pl-3 pr-9 text-xs font-medium text-slate-700 outline-none transition-all placeholder:text-slate-300 focus:placeholder:text-slate-400" /></div>
                                            : <span className="text-xs text-slate-500">{t[`n${workplanQuarter}`] || ''}</span>
                                          }
@@ -2167,15 +2442,17 @@ const App = () => {
                                             <p className="text-[9px] font-black uppercase text-blue-500 mb-1.5">עדכון ר{workplanQuarter}</p>
                                             {isPrevQuarterMissing
                                               ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-slate-50 text-slate-400 border-slate-200">🔒 טרם עודכן ר{workplanQuarter - 1}</div>
-                                              : canEdit
+                                              : canEditQuarter(workplanQuarter)
                                                 ? <StatusDropdown value={currentStatus} open={openStatusMenuId === t.id} setOpen={(open) => setOpenStatusMenuId(open ? t.id : null)} onChange={(val) => { updateTaskLocal(t.id, `q${workplanQuarter}`, val); setOpenStatusMenuId(null); }} />
-                                                : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
+                                                : isQuarterLocked(workplanQuarter) && canEdit
+                                                  ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-slate-50 text-slate-500 border-slate-200">🔒 רבעון {workplanQuarter} נעול</div>
+                                                  : <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[currentStatus]?.bg} ${STATUS_CONFIG[currentStatus]?.text} ${STATUS_CONFIG[currentStatus]?.border}`}>{STATUS_CONFIG[currentStatus]?.label || '-'}</div>
                                             }
                                          </div>
                                       </div>
                                       <div>
                                          <p className="text-[9px] font-black uppercase text-slate-400 mb-1.5">הערות</p>
-                                         {canEdit && !isPrevQuarterMissing
+                                         {canEditQuarter(workplanQuarter) && !isPrevQuarterMissing
                                            ? <textarea rows={2} placeholder="הקלד כאן..." value={t[`n${workplanQuarter}`] || ""} onChange={(e) => updateTaskLocal(t.id, `n${workplanQuarter}`, e.target.value)} className="w-full bg-white/80 border border-slate-200 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 rounded-xl py-2 px-3 text-xs font-medium text-slate-700 outline-none transition-all resize-none" />
                                            : <p className="text-xs text-slate-600">{t[`n${workplanQuarter}`] || <span className="text-slate-400">אין הערות</span>}</p>
                                          }
