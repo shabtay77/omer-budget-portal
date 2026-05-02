@@ -8,7 +8,8 @@ import {
   Megaphone, TableProperties, ShieldAlert, CheckCircle2, Clock, AlertTriangle,
   HelpCircle, Save, Menu, X, Loader2, MessageSquare, History, MinusCircle,
   Download, ChevronDown, Filter, Search, TrendingUp, TrendingDown,
-  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward, ClipboardList, LogOut
+  Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward, ClipboardList, LogOut,
+  Phone, Plus, ChevronRight, ImagePlus, ExternalLink, UserCheck
 } from 'lucide-react';
 
 const SHEETS_CSV_URL =
@@ -333,9 +334,22 @@ const App = () => {
   const [uploadValidation, setUploadValidation] = useState(null); // תוצאות בדיקה אחרי הטעינה
   const uploadFileRef = useRef(null);
 
+  // Complaints module state
+  const [complaints, setComplaints] = useState([]);
+  const [complaintsLoading, setComplaintsLoading] = useState(false);
+  const [complaintsView, setComplaintsView] = useState('list'); // 'list' | 'form'
+  const [complaintForm, setComplaintForm] = useState({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '' });
+  const [complaintImageFiles, setComplaintImageFiles] = useState([]);
+  const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false);
+  const [editingComplaint, setEditingComplaint] = useState(null); // complaint object being edited
+  const [editComplaintForm, setEditComplaintForm] = useState({});
+  const [complaintFilters, setComplaintFilters] = useState({ status: 'הכל', priority: 'הכל' });
+  const complaintImageRef = useRef(null);
+
   const isAharony = currentUser?.user === 'aharony';
   const canEdit   = currentUser?.permissions !== 'VIEW';
   const canUpload = !!currentUser?.addUser;
+  const complaintsRole = currentUser?.complaintsRole || null;
 
   const canEditQuarter = (q) => {
     if (currentUser?.role === 'ADMIN') return true;
@@ -670,6 +684,84 @@ const App = () => {
       const data = await res.json();
       if (data.success) { await loadUsers(); alert('המשתמש הושבת בהצלחה'); } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
     } catch (err) { alert(`שגיאה: ${err.message || ''}`); }
+  };
+
+  const loadComplaints = async () => {
+    setComplaintsLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listComplaints&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) setComplaints(data.complaints || []);
+    } catch (err) { console.error('loadComplaints error:', err); }
+    finally { setComplaintsLoading(false); }
+  };
+
+  const uploadComplaintImageFile = async (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const base64 = e.target.result.split(',')[1];
+          const res = await fetch(GAS_SCRIPT_URL, {
+            method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: 'uploadComplaintImage', fileName: file.name, mimeType: file.type, base64 })
+          });
+          const data = await res.json();
+          if (data.success) resolve(data.url); else reject(new Error(data.error || 'שגיאת העלאה'));
+        } catch (err) { reject(err); }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const submitComplaint = async () => {
+    if (!complaintForm.description.trim()) return alert('יש להזין תיאור פנייה');
+    if (!complaintForm.address.trim() && !complaintForm.landmark.trim()) return alert('יש להזין כתובת או נקודת ציון');
+    setIsSubmittingComplaint(true);
+    showToast('שומר פנייה...', 'saving');
+    try {
+      const imageUrls = [];
+      for (const file of complaintImageFiles) {
+        const url = await uploadComplaintImageFile(file);
+        imageUrls.push(url);
+      }
+      const payload = {
+        action: 'addComplaint',
+        date: complaintForm.date || new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+        address: complaintForm.address, landmark: complaintForm.landmark,
+        subject: complaintForm.subject, description: complaintForm.description,
+        priority: complaintForm.priority, assignedTo: complaintForm.assignedTo,
+        images: imageUrls.join(','), submittedBy: currentUser?.user || ''
+      };
+      const res = await fetch(GAS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`הפנייה נשמרה — ${data.id}`, 'success');
+        setComplaintsView('list');
+        setComplaintForm({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '' });
+        setComplaintImageFiles([]);
+        await loadComplaints();
+      } else throw new Error(data.error || 'שגיאה כללית');
+    } catch (err) { showToast('שגיאה בשמירת פנייה: ' + err.message, 'error', 5000); }
+    finally { setIsSubmittingComplaint(false); }
+  };
+
+  const saveEditedComplaint = async () => {
+    if (!editingComplaint) return;
+    try {
+      showToast('שומר...', 'saving');
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'updateComplaint', id: editingComplaint.id, ...editComplaintForm })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('הפנייה עודכנה', 'success');
+        setEditingComplaint(null);
+        setEditComplaintForm({});
+        await loadComplaints();
+      } else throw new Error(data.error);
+    } catch (err) { showToast('שגיאה בעדכון: ' + err.message, 'error', 5000); }
   };
 
   const wingsOptions = useMemo(() => {
@@ -1500,6 +1592,7 @@ const App = () => {
           <div className="hidden sm:flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
             <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תקציב</button>
             <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תכניות עבודה</button>
+            {complaintsRole && <button onClick={async () => { setMainTab('complaints'); await loadComplaints(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>פניות ציבור</button>}
             {isAharony && <button onClick={async () => { setMainTab('users'); await loadUsers(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>משתמשים</button>}
           </div>
         </div>
@@ -1541,9 +1634,9 @@ const App = () => {
           </div>
           <div className="p-4 border-b border-slate-100 sm:hidden space-y-2 shrink-0">
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">מודולים</p>
-             {['budget', 'workplan', ...(isAharony ? ['users'] : [])].map(tab => (
-                <button key={tab} onClick={() => { setMainTab(tab); if(tab!=='users') setViewMode('dashboard'); else loadUsers(); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : 'text-slate-600 hover:bg-slate-50'}`}>
-                  {tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : 'ניהול משתמשים'}
+             {['budget', 'workplan', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : [])].map(tab => (
+                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') loadUsers(); else if (tab === 'complaints') loadComplaints(); else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
+                  {tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'complaints' ? 'פניות ציבור' : 'ניהול משתמשים'}
                 </button>
              ))}
           </div>
@@ -1665,7 +1758,9 @@ const App = () => {
           <div className="max-w-7xl mx-auto">
             <div className="mb-8 mt-2">
               <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                {mainTab === 'users' ? 'ניהול גישה והרשאות' : (
+                {mainTab === 'users' ? 'ניהול גישה והרשאות' : mainTab === 'complaints' ? (
+                  <><MessageSquare className="text-purple-500 hidden sm:block" size={28} />פניות ציבור</>
+                ) : (
                   <>{mainTab === 'budget' && <Wallet className="text-emerald-500 hidden sm:block" size={28} />}{mainTab === 'workplan' && <Target className="text-blue-500 hidden sm:block" size={28} />}{scopeTitle}</>
                 )}
               </h2>
@@ -1675,6 +1770,7 @@ const App = () => {
                 {mainTab === 'budget' && viewMode === 'control' && 'זיהוי חריגות וניהול סיכונים תקציביים.'}
                 {mainTab === 'workplan' && viewMode === 'dashboard' && 'מעקב התקדמות ויעדים אסטרטגיים.'}
                 {mainTab === 'workplan' && viewMode === 'table' && 'עדכון סטטוסים והערות למשימות שוטפות.'}
+                {mainTab === 'complaints' && 'רישום, מעקב וטיפול בפניות תושבים.'}
               </p>
             </div>
 
@@ -2508,6 +2604,272 @@ const App = () => {
                 )}
               </div>
             )}
+
+            {/* --------- COMPLAINTS TAB --------- */}
+            {mainTab === 'complaints' && (
+              <div className="space-y-6">
+
+                {/* Edit complaint modal */}
+                {editingComplaint && (
+                  <div className="fixed inset-0 z-[1400] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-y-auto max-h-[90vh]">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                        <h3 className="font-black text-slate-800 text-base">עדכון פנייה — {editingComplaint.id}</h3>
+                        <button onClick={() => { setEditingComplaint(null); setEditComplaintForm({}); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">סטטוס</label>
+                          <select value={editComplaintForm.status || ''} onChange={e => setEditComplaintForm(p => ({ ...p, status: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                            <option value="פתוח">פתוח</option>
+                            <option value="בטיפול">בטיפול</option>
+                            <option value="סגור">סגור</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל</label>
+                          <select value={editComplaintForm.assignedTo || ''} onChange={e => setEditComplaintForm(p => ({ ...p, assignedTo: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                            <option value="">— בחר מטפל —</option>
+                            {usersList.filter(u => u.active === 'TRUE').map(u => (
+                              <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">הערת טיפול</label>
+                          <textarea value={editComplaintForm.note || ''} onChange={e => setEditComplaintForm(p => ({ ...p, note: e.target.value }))} rows={3} placeholder="פרט את הטיפול שנעשה..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20 resize-none" />
+                        </div>
+                        <div className="flex gap-3 pt-2">
+                          <button onClick={saveEditedComplaint} className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm transition-colors">שמור עדכון</button>
+                          <button onClick={() => { setEditingComplaint(null); setEditComplaintForm({}); }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-sm transition-colors">ביטול</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {complaintsView === 'form' ? (
+                  /* ---- NEW COMPLAINT FORM ---- */
+                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8 max-w-2xl">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-base font-black text-slate-800">פנייה חדשה</h3>
+                      <button onClick={() => { setComplaintsView('list'); setComplaintImageFiles([]); }} className="flex items-center gap-1.5 text-sm font-bold text-slate-500 hover:text-slate-800">
+                        <ChevronRight size={16} /> חזרה לרשימה
+                      </button>
+                    </div>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">תאריך פנייה</label>
+                          <input type="text" placeholder="DD/MM/YYYY" value={complaintForm.date} onChange={e => setComplaintForm(p => ({ ...p, date: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">נושא</label>
+                          <select value={complaintForm.subject} onChange={e => setComplaintForm(p => ({ ...p, subject: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                            {['תשתיות', 'ניקיון', 'תאורה', 'עצים וגינון', 'חניה', 'רעש', 'בעלי חיים', 'אחר'].map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">כתובת <span className="text-slate-400 font-medium">(חובה אחד מהשניים)</span></label>
+                          <input type="text" placeholder="רחוב ומספר בית" value={complaintForm.address} onChange={e => setComplaintForm(p => ({ ...p, address: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">נקודת ציון</label>
+                          <input type="text" placeholder='למשל: ליד בית הכנסת "..."' value={complaintForm.landmark} onChange={e => setComplaintForm(p => ({ ...p, landmark: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-black text-slate-500 mb-1.5 block">תיאור הפנייה <span className="text-red-500">*</span></label>
+                        <textarea value={complaintForm.description} onChange={e => setComplaintForm(p => ({ ...p, description: e.target.value }))} rows={4} placeholder="תאר את הבעיה בפירוט..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20 resize-none" />
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">עדיפות</label>
+                          <select value={complaintForm.priority} onChange={e => setComplaintForm(p => ({ ...p, priority: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                            <option value="דחוף">דחוף (SLA: 2 ימים)</option>
+                            <option value="רגיל">רגיל (SLA: 7 ימים)</option>
+                            <option value="נמוך">נמוך (SLA: 14 ימים)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">הקצאה למטפל</label>
+                          <select value={complaintForm.assignedTo} onChange={e => setComplaintForm(p => ({ ...p, assignedTo: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                            <option value="">— לא מוקצה —</option>
+                            {usersList.filter(u => u.active === 'TRUE').map(u => (
+                              <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-black text-slate-500 mb-1.5 block">תמונות</label>
+                        <input ref={complaintImageRef} type="file" accept="image/*" multiple className="hidden" onChange={e => setComplaintImageFiles(prev => [...prev, ...Array.from(e.target.files)])} />
+                        <button onClick={() => complaintImageRef.current?.click()} className="flex items-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-300 rounded-xl text-sm font-bold text-slate-500 hover:border-purple-400 hover:text-purple-600 transition-colors w-full justify-center">
+                          <ImagePlus size={18} /> הוסף תמונות
+                        </button>
+                        {complaintImageFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {complaintImageFiles.map((f, i) => (
+                              <div key={i} className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-lg text-xs font-bold text-purple-700">
+                                {f.name}
+                                <button onClick={() => setComplaintImageFiles(prev => prev.filter((_, idx) => idx !== i))} className="text-purple-400 hover:text-red-500"><X size={12} /></button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-3 pt-2">
+                        <button onClick={submitComplaint} disabled={isSubmittingComplaint} className="flex-1 py-3.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white rounded-xl font-black text-sm transition-colors flex items-center justify-center gap-2">
+                          {isSubmittingComplaint ? <><Loader2 size={16} className="animate-spin" /> שומר...</> : <><Plus size={16} /> שמור פנייה</>}
+                        </button>
+                        <button onClick={() => { setComplaintsView('list'); setComplaintImageFiles([]); }} className="px-6 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-sm transition-colors">ביטול</button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* ---- COMPLAINTS LIST ---- */
+                  <>
+                    {/* Stats row */}
+                    {(() => {
+                      const now = new Date();
+                      const open = complaints.filter(c => c.status === 'פתוח').length;
+                      const inProgress = complaints.filter(c => c.status === 'בטיפול').length;
+                      const closed = complaints.filter(c => c.status === 'סגור').length;
+                      const overdueSla = complaints.filter(c => {
+                        if (c.status === 'סגור') return false;
+                        if (!c.slaDate) return false;
+                        const sla = parseDateLogic(c.slaDate);
+                        return sla && now > sla;
+                      }).length;
+                      return (
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                          {[
+                            { label: 'פתוח', value: open, color: 'bg-blue-50 border-blue-200 text-blue-700', dot: 'bg-blue-500' },
+                            { label: 'בטיפול', value: inProgress, color: 'bg-amber-50 border-amber-200 text-amber-700', dot: 'bg-amber-500' },
+                            { label: 'סגור', value: closed, color: 'bg-emerald-50 border-emerald-200 text-emerald-700', dot: 'bg-emerald-500' },
+                            { label: 'חריגת SLA', value: overdueSla, color: 'bg-red-50 border-red-200 text-red-700', dot: 'bg-red-500' },
+                          ].map(s => (
+                            <div key={s.label} className={`rounded-2xl border p-5 flex items-center gap-4 ${s.color}`}>
+                              <div className={`w-3 h-3 rounded-full ${s.dot} shrink-0`} />
+                              <div>
+                                <p className="text-2xl font-black">{s.value}</p>
+                                <p className="text-xs font-bold mt-0.5">{s.label}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Toolbar */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {(complaintsRole === 'input' || complaintsRole === 'admin') && (
+                        <button onClick={async () => {
+                          if (usersList.length === 0) await loadUsers();
+                          setComplaintForm({ date: new Date().toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }), address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '' });
+                          setComplaintsView('form');
+                        }} className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm transition-colors shadow-sm">
+                          <Plus size={16} /> פנייה חדשה
+                        </button>
+                      )}
+                      <button onClick={loadComplaints} disabled={complaintsLoading} className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                        <RefreshCw size={14} className={complaintsLoading ? 'animate-spin' : ''} /> רענן
+                      </button>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <select value={complaintFilters.status} onChange={e => setComplaintFilters(p => ({ ...p, status: e.target.value }))} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none">
+                          <option value="הכל">כל הסטטוסים</option>
+                          <option value="פתוח">פתוח</option>
+                          <option value="בטיפול">בטיפול</option>
+                          <option value="סגור">סגור</option>
+                        </select>
+                        <select value={complaintFilters.priority} onChange={e => setComplaintFilters(p => ({ ...p, priority: e.target.value }))} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none">
+                          <option value="הכל">כל העדיפויות</option>
+                          <option value="דחוף">דחוף</option>
+                          <option value="רגיל">רגיל</option>
+                          <option value="נמוך">נמוך</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Table */}
+                    {complaintsLoading ? (
+                      <div className="flex items-center justify-center py-20 text-slate-400">
+                        <Loader2 size={28} className="animate-spin mr-3" /> טוען פניות...
+                      </div>
+                    ) : (
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm" dir="rtl">
+                            <thead>
+                              <tr className="border-b border-slate-100 bg-slate-50/80">
+                                {['מזהה', 'תאריך', 'נושא', 'כתובת / נקודת ציון', 'עדיפות', 'מטפל', 'SLA', 'סטטוס', ''].map(h => (
+                                  <th key={h} className="px-4 py-3 text-right text-[11px] font-black text-slate-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {complaints
+                                .filter(c => (complaintFilters.status === 'הכל' || c.status === complaintFilters.status) && (complaintFilters.priority === 'הכל' || c.priority === complaintFilters.priority))
+                                .map((c, idx) => {
+                                  const now = new Date();
+                                  const sla = c.slaDate ? parseDateLogic(c.slaDate) : null;
+                                  const slaOverdue = sla && c.status !== 'סגור' && now > sla;
+                                  const statusColor = c.status === 'סגור' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : c.status === 'בטיפול' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200';
+                                  const priorityColor = c.priority === 'דחוף' ? 'bg-red-50 text-red-700 border-red-200' : c.priority === 'נמוך' ? 'bg-slate-50 text-slate-600 border-slate-200' : 'bg-orange-50 text-orange-700 border-orange-200';
+                                  return (
+                                    <tr key={c.id || idx} className={`border-b border-slate-50 hover:bg-slate-50/60 transition-colors ${slaOverdue ? 'bg-red-50/20' : ''}`}>
+                                      <td className="px-4 py-3 font-black text-slate-700 text-xs whitespace-nowrap">{c.id}</td>
+                                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">{c.date}</td>
+                                      <td className="px-4 py-3 text-slate-700 font-bold text-xs whitespace-nowrap">{c.subject}</td>
+                                      <td className="px-4 py-3 text-slate-600 text-xs max-w-[180px] truncate">{c.address || c.landmark}</td>
+                                      <td className="px-4 py-3">
+                                        <span className={`inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black ${priorityColor}`}>{c.priority}</span>
+                                      </td>
+                                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">{c.assignedTo || '—'}</td>
+                                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                                        {c.slaDate ? (
+                                          <span className={`font-bold ${slaOverdue ? 'text-red-600' : 'text-slate-600'}`}>{c.slaDate}{slaOverdue && ' ⚠'}</span>
+                                        ) : '—'}
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <span className={`inline-block px-2 py-0.5 rounded-lg border text-[10px] font-black ${statusColor}`}>{c.status}</span>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex items-center gap-1.5">
+                                          {(complaintsRole === 'admin' || complaintsRole === 'input') && (
+                                            <button onClick={async () => {
+                                              if (usersList.length === 0) await loadUsers();
+                                              setEditingComplaint(c);
+                                              setEditComplaintForm({ status: c.status, assignedTo: c.assignedTo || '', note: '' });
+                                            }} className="p-1.5 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors" title="עדכן פנייה">
+                                              <UserCheck size={14} />
+                                            </button>
+                                          )}
+                                          {c.images && c.images.split(',').filter(Boolean).map((url, ui) => (
+                                            <a key={ui} href={url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="פתח תמונה">
+                                              <ExternalLink size={14} />
+                                            </a>
+                                          ))}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              {complaints.filter(c => (complaintFilters.status === 'הכל' || c.status === complaintFilters.status) && (complaintFilters.priority === 'הכל' || c.priority === complaintFilters.priority)).length === 0 && (
+                                <tr><td colSpan={9} className="py-16 text-center text-slate-400 font-bold">אין פניות להצגה</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
           </div>
         </main>
       </div>
@@ -2866,6 +3228,12 @@ const App = () => {
             <ClipboardList size={20} strokeWidth={2} />
             <span>עדכון משימות</span>
           </button>
+          {complaintsRole && (
+            <button onClick={async () => { setMainTab('complaints'); await loadComplaints(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'complaints' ? 'text-purple-600' : 'text-slate-400'}`}>
+              <MessageSquare size={20} strokeWidth={2} />
+              <span>פניות</span>
+            </button>
+          )}
           {isAharony && (
             <button onClick={async () => { setMainTab('users'); await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
               <Users size={20} strokeWidth={2} />
