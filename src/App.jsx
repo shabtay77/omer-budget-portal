@@ -343,13 +343,16 @@ const App = () => {
   const [complaints, setComplaints] = useState([]);
   const [complaintsLoading, setComplaintsLoading] = useState(false);
   const [complaintsView, setComplaintsView] = useState('list'); // 'list' | 'form'
-  const [complaintForm, setComplaintForm] = useState({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '' });
+  const [complaintForm, setComplaintForm] = useState({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '', responsibility2: '', phone: '', mobile2: '' });
   const [complaintImageFiles, setComplaintImageFiles] = useState([]);
   const [isSubmittingComplaint, setIsSubmittingComplaint] = useState(false);
   const [editingComplaint, setEditingComplaint] = useState(null); // complaint object being edited
   const [editComplaintForm, setEditComplaintForm] = useState({});
   const [complaintFilters, setComplaintFilters] = useState({ status: 'הכל', priority: 'הכל', assignee: 'הכל', receiver: 'הכל' });
   const [selectedComplaint, setSelectedComplaint] = useState(null);
+  const [closingComplaint, setClosingComplaint] = useState(null);
+  const [closeStatusDetail, setCloseStatusDetail] = useState('');
+  const [complaintsSubView, setComplaintsSubView] = useState('dashboard');
   const complaintImageRef = useRef(null);
 
   const isAharony = currentUser?.user === 'aharony';
@@ -753,6 +756,7 @@ const App = () => {
         address: complaintForm.address, landmark: complaintForm.landmark,
         subject: complaintForm.subject, description: complaintForm.description,
         priority: complaintForm.priority, assignedTo: complaintForm.assignedTo,
+        responsibility2: complaintForm.responsibility2, phone: complaintForm.phone, mobile2: complaintForm.mobile2,
         images: imageUrls.join(','), submittedBy: currentUser?.user || ''
       };
       const res = await fetch(GAS_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
@@ -760,7 +764,7 @@ const App = () => {
       if (data.success) {
         showToast(`הפנייה נשמרה — ${data.id}`, 'success');
         setComplaintsView('list');
-        setComplaintForm({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '' });
+        setComplaintForm({ date: '', address: '', landmark: '', subject: 'תשתיות', description: '', priority: 'רגיל', assignedTo: '', responsibility2: '', phone: '', mobile2: '' });
         setComplaintImageFiles([]);
         await loadComplaints();
       } else throw new Error(data.error || 'שגיאה כללית');
@@ -786,13 +790,12 @@ const App = () => {
     } catch (err) { showToast('שגיאה בעדכון: ' + err.message, 'error', 5000); }
   };
 
-  const closeComplaint = async (c) => {
-    if (!window.confirm(`לסגור פנייה ${c.id}? פעולה זו אינה הפיכה.`)) return;
+  const closeComplaint = async (c, statusDetail) => {
     try {
       showToast('סוגר פנייה...', 'saving');
       const res = await fetch(GAS_SCRIPT_URL, {
         method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'updateComplaint', id: c.id, status: 'סגור', closed: 'סגור' })
+        body: JSON.stringify({ action: 'updateComplaint', id: c.id, status: 'סגור', statusDetail: statusDetail || '' })
       });
       const data = await res.json();
       if (data.success) { showToast('הפנייה נסגרה', 'success'); await loadComplaints(); }
@@ -1685,33 +1688,49 @@ const App = () => {
             <div className="flex-1 overflow-y-auto pb-24">
               <div className="p-4 space-y-1.5 border-b border-slate-100">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-2">תצוגות</p>
-                <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
-                  <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
-                </button>
-                <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan' && workplanQuarter === 0) setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
-                  <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
-                  {mainTab === 'workplan' && overdueTasksCount > 0 && (
-                    <span className="mr-auto bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{overdueTasksCount}</span>
-                  )}
-                </button>
-                {mainTab === 'budget' && (
+                {mainTab === 'complaints' ? (
                   <>
-                  <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'control' ? 'bg-red-50 text-red-700 border-red-400' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600 border-transparent'}`}>
-                    <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} />
-                    <span>בקרת חריגות</span>
-                    {budgetAlertsCount > 0 && (
-                      <span className="mr-auto bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{budgetAlertsCount}</span>
-                    )}
-                  </button>
-                  {canUpload && (
-                    <button onClick={() => { resetUpload(); setShowUploadModal(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-emerald-700 hover:bg-emerald-50 border border-dashed border-emerald-200 hover:border-emerald-400">
-                      <Upload size={18} className="text-emerald-500" />
-                      <span>טעינת נתוני תקציב</span>
+                    <button onClick={() => { setComplaintsSubView('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${complaintsSubView === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-purple-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <LayoutDashboard size={18} className={complaintsSubView === 'dashboard' ? 'text-purple-400' : 'text-slate-400'} /> תמונת מצב
                     </button>
-                  )}
+                    {complaintsRole && (
+                      <button onClick={() => { setComplaintsSubView('list'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${complaintsSubView === 'list' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                        <TableProperties size={18} className={complaintsSubView === 'list' ? 'text-blue-400' : 'text-slate-400'} /> עדכון פניות
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <LayoutDashboard size={18} className={viewMode === 'dashboard' ? 'text-emerald-400' : 'text-slate-400'} /> תמונת מצב
+                    </button>
+                    <button onClick={() => { setViewMode('table'); if (mainTab === 'workplan' && workplanQuarter === 0) setShowQuarterPicker(true); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <TableProperties size={18} className={viewMode === 'table' ? 'text-blue-400' : 'text-slate-400'} /> {mainTab === 'budget' ? 'פירוט תקציב' : 'עדכון משימות'}
+                      {mainTab === 'workplan' && overdueTasksCount > 0 && (
+                        <span className="mr-auto bg-orange-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{overdueTasksCount}</span>
+                      )}
+                    </button>
+                    {mainTab === 'budget' && (
+                      <>
+                        <button onClick={() => { setViewMode('control'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'control' ? 'bg-red-50 text-red-700 border-red-400' : 'text-slate-600 hover:bg-slate-50 hover:text-red-600 border-transparent'}`}>
+                          <ShieldAlert size={18} className={viewMode === 'control' ? 'text-red-600' : 'text-slate-400'} />
+                          <span>בקרת חריגות</span>
+                          {budgetAlertsCount > 0 && (
+                            <span className="mr-auto bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full leading-none">{budgetAlertsCount}</span>
+                          )}
+                        </button>
+                        {canUpload && (
+                          <button onClick={() => { resetUpload(); setShowUploadModal(true); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all text-emerald-700 hover:bg-emerald-50 border border-dashed border-emerald-200 hover:border-emerald-400">
+                            <Upload size={18} className="text-emerald-500" />
+                            <span>טעינת נתוני תקציב</span>
+                          </button>
+                        )}
+                      </>
+                    )}
                   </>
                 )}
               </div>
+              {mainTab !== 'complaints' && (
               <div className="p-4 space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
                {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
@@ -1778,6 +1797,7 @@ const App = () => {
               </div>
             )}
           </div>
+            )}
             </div>
           )}
         </aside>
@@ -2667,7 +2687,10 @@ const App = () => {
               <div className="space-y-6">
 
                 {/* Edit complaint modal */}
-                {editingComplaint && (
+                {editingComplaint && (() => {
+                  const isManagerRole = complaintsRole === 'admin' || complaintsRole === 'manager' || complaintsRole === 'editor';
+                  const isAssigneeOrSubmitter = editingComplaint.assignedTo === currentUser?.user || editingComplaint.submittedBy === currentUser?.user;
+                  return (
                   <div className="fixed inset-0 z-[1400] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
                     <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-y-auto max-h-[90vh]">
                       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -2675,32 +2698,99 @@ const App = () => {
                         <button onClick={() => { setEditingComplaint(null); setEditComplaintForm({}); }} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
                       </div>
                       <div className="p-6 space-y-4">
-                        <div>
-                          <label className="text-xs font-black text-slate-500 mb-1.5 block">סטטוס</label>
-                          <select value={editComplaintForm.status || ''} onChange={e => setEditComplaintForm(p => ({ ...p, status: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
-                            <option value="פתוח">פתוח</option>
-                            <option value="בטיפול">בטיפול</option>
-                            <option value="סגור">סגור</option>
-                          </select>
-                        </div>
-                        {complaintsRole !== 'editor' && (
+                        {isManagerRole && (
                           <div>
-                            <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל</label>
-                            <select value={editComplaintForm.assignedTo || ''} onChange={e => setEditComplaintForm(p => ({ ...p, assignedTo: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
-                              <option value="">— בחר מטפל —</option>
-                              {usersList.filter(u => u.active === 'TRUE').map(u => (
-                                <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
-                              ))}
+                            <label className="text-xs font-black text-slate-500 mb-1.5 block">סטטוס</label>
+                            <select value={editComplaintForm.status || ''} onChange={e => setEditComplaintForm(p => ({ ...p, status: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                              <option value="פתוח">פתוח</option>
+                              <option value="בטיפול">בטיפול</option>
+                              <option value="סגור">סגור</option>
                             </select>
                           </div>
                         )}
-                        <div>
-                          <label className="text-xs font-black text-slate-500 mb-1.5 block">הערת טיפול</label>
-                          <textarea value={editComplaintForm.note || ''} onChange={e => setEditComplaintForm(p => ({ ...p, note: e.target.value }))} rows={3} placeholder="פרט את הטיפול שנעשה..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20 resize-none" />
+                        {isManagerRole && complaintsRole !== 'editor' && (
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל ראשי</label>
+                              <select value={editComplaintForm.assignedTo || ''} onChange={e => setEditComplaintForm(p => ({ ...p, assignedTo: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                                <option value="">— לא מוקצה —</option>
+                                {editComplaintForm.assignedTo && !usersList.find(u => u.username === editComplaintForm.assignedTo && u.active === 'TRUE') && (
+                                  <option value={editComplaintForm.assignedTo}>{editComplaintForm.assignedTo}</option>
+                                )}
+                                {usersList.filter(u => u.active === 'TRUE').map(u => (
+                                  <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל שני</label>
+                              <select value={editComplaintForm.responsibility2 || ''} onChange={e => setEditComplaintForm(p => ({ ...p, responsibility2: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                                <option value="">— ללא —</option>
+                                {usersList.filter(u => u.active === 'TRUE').map(u => (
+                                  <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-black text-slate-500 mb-1.5 block">טלפון 1</label>
+                            <input type="tel" value={editComplaintForm.phone ?? (editingComplaint.phone || '')} onChange={e => setEditComplaintForm(p => ({ ...p, phone: e.target.value }))} placeholder="05X-XXXXXXX" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                          </div>
+                          <div>
+                            <label className="text-xs font-black text-slate-500 mb-1.5 block">טלפון 2</label>
+                            <input type="tel" value={editComplaintForm.mobile2 ?? (editingComplaint.mobile2 || '')} onChange={e => setEditComplaintForm(p => ({ ...p, mobile2: e.target.value }))} placeholder="05X-XXXXXXX" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                          </div>
                         </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">פירוט סטטוס <span className="text-slate-400 font-medium">(מה נעשה / מה המצב הנוכחי)</span></label>
+                          <textarea value={editComplaintForm.statusDetail ?? (editingComplaint.statusDetail || '')} onChange={e => setEditComplaintForm(p => ({ ...p, statusDetail: e.target.value }))} rows={3} placeholder="פרט את הטיפול שנעשה או את מצב הטיפול הנוכחי..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20 resize-none" />
+                        </div>
+                        {isManagerRole && (
+                          <div>
+                            <label className="text-xs font-black text-slate-500 mb-1.5 block">הערה פנימית</label>
+                            <textarea value={editComplaintForm.note || ''} onChange={e => setEditComplaintForm(p => ({ ...p, note: e.target.value }))} rows={2} placeholder="הערה פנימית..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20 resize-none" />
+                          </div>
+                        )}
                         <div className="flex gap-3 pt-2">
                           <button onClick={saveEditedComplaint} className="flex-1 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-black text-sm transition-colors">שמור עדכון</button>
                           <button onClick={() => { setEditingComplaint(null); setEditComplaintForm({}); }} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-sm transition-colors">ביטול</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  );
+                })()}
+
+                {/* Close complaint modal */}
+                {closingComplaint && (
+                  <div className="fixed inset-0 z-[1400] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md">
+                      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+                        <h3 className="font-black text-slate-800 text-base">סגירת פנייה — {closingComplaint.id}</h3>
+                        <button onClick={() => setClosingComplaint(null)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+                      </div>
+                      <div className="p-6 space-y-4">
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">פירוט סטטוס <span className="text-red-500">*</span> <span className="text-slate-400 font-medium">(חובה לציין מה בוצע)</span></label>
+                          <textarea
+                            value={closeStatusDetail}
+                            onChange={e => setCloseStatusDetail(e.target.value)}
+                            rows={4}
+                            placeholder="תאר מה בוצע לסגירת הפנייה..."
+                            autoFocus
+                            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/20 resize-none"
+                          />
+                        </div>
+                        <div className="flex gap-3 pt-1">
+                          <button
+                            onClick={async () => { if (!closeStatusDetail.trim()) { showToast('יש למלא פירוט סטטוס לפני סגירה', 'error', 3000); return; } await closeComplaint(closingComplaint, closeStatusDetail); setClosingComplaint(null); }}
+                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition-colors"
+                          >
+                            <CheckCircle2 size={14} className="inline ml-1.5" /> אישור סגירה
+                          </button>
+                          <button onClick={() => setClosingComplaint(null)} className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black text-sm transition-colors">ביטול</button>
                         </div>
                       </div>
                     </div>
@@ -2711,8 +2801,9 @@ const App = () => {
                 {selectedComplaint && (() => {
                   const c = selectedComplaint;
                   const fmtD = (v) => { if (!v) return '—'; const d = parseDateLogic(v) || new Date(v); return (!d || isNaN(d.getTime())) ? String(v) : d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
-                  const isClosed = (c.closed && String(c.closed).trim() !== '' && String(c.closed).toUpperCase() !== 'FALSE') || c.status === 'סגור';
-                  const effStatus = isClosed ? 'סגור' : (c.status || 'פתוח');
+                  const isClosedC = c => { const s = String(c.status || '').trim(); return s === 'סגור' || s === 'בוצע' || s.toUpperCase() === 'TRUE'; };
+                  const isClosed = isClosedC(c);
+                  const effStatus = isClosed ? 'סגור' : (String(c.status || '').trim() === 'בטיפול' ? 'בטיפול' : 'פתוח');
                   const sla = c.slaDate ? (parseDateLogic(c.slaDate) || new Date(c.slaDate)) : null;
                   const slaOverdue = sla && !isNaN(sla.getTime()) && !isClosed && new Date() > sla;
                   const canClose = !isClosed && (complaintsRole === 'admin' || complaintsRole === 'manager' || c.submittedBy === currentUser?.user);
@@ -2742,10 +2833,12 @@ const App = () => {
                               { label: 'מועד יעד (SLA)', value: fmtD(c.slaDate) + (slaOverdue ? ' ⚠' : ''), cls: slaOverdue ? 'text-red-600' : '' },
                               c.address     ? { label: 'כתובת',         value: c.address }     : null,
                               c.landmark    ? { label: 'נקודת ציון',    value: c.landmark }    : null,
-                              c.assignedTo  ? { label: 'מטפל',          value: usersList.find(u => u.username === c.assignedTo)?.fullName || c.assignedTo }  : null,
-                              c.submittedBy ? { label: 'מקבל הפנייה',  value: usersList.find(u => u.username === c.submittedBy)?.fullName || c.submittedBy } : null,
-                              c.residentName ? { label: 'שם התושב',     value: c.residentName } : null,
-                              c.phone       ? { label: 'טלפון',         value: c.phone }       : null,
+                              c.assignedTo     ? { label: 'מטפל ראשי',    value: usersList.find(u => u.username === c.assignedTo)?.fullName || c.assignedTo }     : null,
+                              c.responsibility2 ? { label: 'מטפל שני',   value: usersList.find(u => u.username === c.responsibility2)?.fullName || c.responsibility2 } : null,
+                              c.submittedBy    ? { label: 'מקבל הפנייה', value: usersList.find(u => u.username === c.submittedBy)?.fullName || c.submittedBy }    : null,
+                              c.residentName   ? { label: 'שם התושב',    value: c.residentName }  : null,
+                              c.phone          ? { label: 'טלפון 1',     value: c.phone }         : null,
+                              c.mobile2        ? { label: 'טלפון 2',     value: c.mobile2 }       : null,
                             ].filter(Boolean).map(({ label, value, cls }) => (
                               <div key={label}>
                                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">{label}</p>
@@ -2753,9 +2846,17 @@ const App = () => {
                               </div>
                             ))}
                           </div>
+                          {c.statusDetail && (
+                            <div>
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">פירוט סטטוס</p>
+                              <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
+                                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{c.statusDetail}</p>
+                              </div>
+                            </div>
+                          )}
                           {notesLines.length > 0 && (
                             <div>
-                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">הערות וטיפול</p>
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">הערות פנימיות</p>
                               <div className="bg-slate-50 rounded-2xl p-4 space-y-3 max-h-52 overflow-y-auto">
                                 {notesLines.map((line, i) => {
                                   const m = line.match(/^\[(.+?)\]\s+(.*)/);
@@ -2790,20 +2891,20 @@ const App = () => {
                               </div>
                             </div>
                           )}
-                          {((complaintsRole === 'admin' || complaintsRole === 'manager' || complaintsRole === 'editor') && !isClosed) || canClose ? (
+                          {((complaintsRole === 'admin' || complaintsRole === 'manager' || complaintsRole === 'editor') && !isClosed) || canClose || (!isClosed && (c.assignedTo === currentUser?.user || c.submittedBy === currentUser?.user)) ? (
                             <div className="flex gap-2 pt-2 border-t border-slate-100">
-                              {(complaintsRole === 'admin' || complaintsRole === 'manager' || complaintsRole === 'editor') && !isClosed && (
+                              {((complaintsRole === 'admin' || complaintsRole === 'manager' || complaintsRole === 'editor') || c.assignedTo === currentUser?.user || c.submittedBy === currentUser?.user) && !isClosed && (
                                 <button onClick={async () => {
                                   if (usersList.length === 0) await loadUsers();
                                   setEditingComplaint(c);
-                                  setEditComplaintForm({ status: c.status || 'פתוח', assignedTo: c.assignedTo || '', note: '' });
+                                  setEditComplaintForm({ status: c.status || 'פתוח', assignedTo: c.assignedTo || '', responsibility2: c.responsibility2 || '', phone: c.phone || '', mobile2: c.mobile2 || '', statusDetail: c.statusDetail || '', note: '' });
                                   setSelectedComplaint(null);
                                 }} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-black text-sm transition-colors border border-purple-200">
                                   <UserCheck size={14} /> עדכן פנייה
                                 </button>
                               )}
                               {canClose && (
-                                <button onClick={() => { closeComplaint(c); setSelectedComplaint(null); }} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-black text-sm transition-colors border border-emerald-200">
+                                <button onClick={() => { setClosingComplaint(c); setCloseStatusDetail(''); setSelectedComplaint(null); }} className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl font-black text-sm transition-colors border border-emerald-200">
                                   <CheckCircle2 size={14} /> סגור פנייה
                                 </button>
                               )}
@@ -2815,7 +2916,131 @@ const App = () => {
                   );
                 })()}
 
-                {complaintsView === 'form' ? (
+                {complaintsSubView === 'dashboard' ? (
+                  /* ---- COMPLAINTS DASHBOARD ---- */
+                  (() => {
+                    const isClosedD = c => { const s = String(c.status || '').trim(); return s === 'סגור' || s === 'בוצע' || s === 'V' || s === 'v' || s.toUpperCase() === 'TRUE'; };
+                    const effStD = c => isClosedD(c) ? 'סגור' : (String(c.status || '').trim() === 'בטיפול' ? 'בטיפול' : 'פתוח');
+                    const now = new Date(); now.setHours(0,0,0,0);
+                    const openC = visibleComplaints.filter(c => effStD(c) === 'פתוח');
+                    const inProgressC = visibleComplaints.filter(c => effStD(c) === 'בטיפול');
+                    const closedC = visibleComplaints.filter(c => effStD(c) === 'סגור');
+                    const overdueSlaC = visibleComplaints.filter(c => {
+                      if (isClosedD(c)) return false;
+                      if (!c.slaDate) return false;
+                      const sla = parseDateLogic(c.slaDate) || new Date(c.slaDate);
+                      return sla && !isNaN(sla.getTime()) && now > sla;
+                    });
+                    const bySubject = {};
+                    visibleComplaints.forEach(c => {
+                      const s = c.subject || 'אחר';
+                      if (!bySubject[s]) bySubject[s] = { open: 0, inProgress: 0, closed: 0 };
+                      const st = effStD(c);
+                      if (st === 'פתוח') bySubject[s].open++;
+                      else if (st === 'בטיפול') bySubject[s].inProgress++;
+                      else bySubject[s].closed++;
+                    });
+                    const byAssignee = {};
+                    visibleComplaints.filter(c => !isClosedD(c)).forEach(c => {
+                      const a = c.assignedTo || '—';
+                      if (!byAssignee[a]) byAssignee[a] = { total: 0, overdue: 0 };
+                      byAssignee[a].total++;
+                      const sla = c.slaDate ? (parseDateLogic(c.slaDate) || new Date(c.slaDate)) : null;
+                      if (sla && !isNaN(sla.getTime()) && now > sla) byAssignee[a].overdue++;
+                    });
+                    return (
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                          {[
+                            { label: 'פתוח', value: openC.length, color: 'bg-blue-50 border-blue-200 text-blue-700', dot: 'bg-blue-500' },
+                            { label: 'בטיפול', value: inProgressC.length, color: 'bg-amber-50 border-amber-200 text-amber-700', dot: 'bg-amber-500' },
+                            { label: 'סגור', value: closedC.length, color: 'bg-emerald-50 border-emerald-200 text-emerald-700', dot: 'bg-emerald-500' },
+                            { label: 'חריגת SLA', value: overdueSlaC.length, color: 'bg-red-50 border-red-200 text-red-700', dot: 'bg-red-500' },
+                          ].map(s => (
+                            <div key={s.label} className={`rounded-2xl border p-5 flex items-center gap-4 ${s.color}`}>
+                              <div className={`w-3 h-3 rounded-full ${s.dot} shrink-0`} />
+                              <div><p className="text-3xl font-black">{s.value}</p><p className="text-xs font-bold mt-0.5">{s.label}</p></div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                            <h4 className="font-black text-slate-700 text-sm mb-4">פניות לפי נושא</h4>
+                            <table className="w-full text-sm">
+                              <thead><tr className="border-b border-slate-100">
+                                <th className="text-right text-[10px] font-black text-slate-400 pb-2">נושא</th>
+                                <th className="text-center text-[10px] font-black text-blue-500 pb-2">פתוח</th>
+                                <th className="text-center text-[10px] font-black text-amber-500 pb-2">בטיפול</th>
+                                <th className="text-center text-[10px] font-black text-emerald-600 pb-2">סגור</th>
+                              </tr></thead>
+                              <tbody>
+                                {Object.entries(bySubject).sort((a,b) => (b[1].open+b[1].inProgress)-(a[1].open+a[1].inProgress)).map(([subj,counts]) => (
+                                  <tr key={subj} className="border-b border-slate-50 hover:bg-slate-50">
+                                    <td className="py-2 font-bold text-slate-700">{subj}</td>
+                                    <td className="py-2 text-center font-black text-blue-600">{counts.open || '—'}</td>
+                                    <td className="py-2 text-center font-black text-amber-600">{counts.inProgress || '—'}</td>
+                                    <td className="py-2 text-center font-black text-emerald-600">{counts.closed || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                            <h4 className="font-black text-slate-700 text-sm mb-4">עומס לפי מטפל (פניות פתוחות)</h4>
+                            {Object.keys(byAssignee).length === 0 ? (
+                              <p className="text-sm text-slate-400 font-bold text-center py-4">אין פניות פתוחות</p>
+                            ) : (
+                              <table className="w-full text-sm">
+                                <thead><tr className="border-b border-slate-100">
+                                  <th className="text-right text-[10px] font-black text-slate-400 pb-2">מטפל</th>
+                                  <th className="text-center text-[10px] font-black text-slate-400 pb-2">פניות</th>
+                                  <th className="text-center text-[10px] font-black text-red-500 pb-2">חריגת SLA</th>
+                                </tr></thead>
+                                <tbody>
+                                  {Object.entries(byAssignee).sort((a,b) => b[1].total-a[1].total).map(([username,data]) => {
+                                    const name = usersList.find(u => u.username === username)?.fullName || username;
+                                    return (
+                                      <tr key={username} className="border-b border-slate-50 hover:bg-slate-50">
+                                        <td className="py-2 font-bold text-slate-700">{name}</td>
+                                        <td className="py-2 text-center font-black text-slate-600">{data.total}</td>
+                                        <td className="py-2 text-center font-black">{data.overdue > 0 ? <span className="text-red-600">{data.overdue}</span> : <span className="text-slate-300">—</span>}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+                        {overdueSlaC.length > 0 && (
+                          <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                            <h4 className="font-black text-red-700 text-sm mb-4">חריגות SLA — {overdueSlaC.length} פניות</h4>
+                            <div className="space-y-2">
+                              {[...overdueSlaC].sort((a,b) => { const da=parseDateLogic(a.slaDate)||new Date(0); const db=parseDateLogic(b.slaDate)||new Date(0); return da-db; }).map(c => {
+                                const sla = parseDateLogic(c.slaDate) || new Date(c.slaDate);
+                                const daysLate = Math.floor((now - sla) / 86400000);
+                                const assigneeName = c.assignedTo ? (usersList.find(u => u.username === c.assignedTo)?.fullName || c.assignedTo) : 'לא מוקצה';
+                                return (
+                                  <div key={c.id} onClick={() => setSelectedComplaint(c)} className="flex items-center justify-between bg-white rounded-xl px-4 py-2.5 border border-red-100 cursor-pointer hover:border-red-300 transition-colors">
+                                    <div className="flex items-center gap-3">
+                                      <span className="font-mono text-[10px] text-slate-400 border border-slate-200 bg-slate-50 px-1.5 py-0.5 rounded">{c.id}</span>
+                                      <span className="text-sm font-bold text-slate-700">{c.subject}</span>
+                                      {c.address && <span className="text-xs text-slate-400 hidden lg:inline">{c.address}</span>}
+                                    </div>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                      <span className="text-xs font-bold text-slate-500 hidden lg:inline">{assigneeName}</span>
+                                      <span className="text-xs font-black text-red-600 bg-red-100 px-2 py-0.5 rounded-full">+{daysLate} ימים</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : complaintsView === 'form' ? (
                   /* ---- NEW COMPLAINT FORM ---- */
                   <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 lg:p-8 max-w-2xl">
                     <div className="flex items-center justify-between mb-6">
@@ -2853,6 +3078,16 @@ const App = () => {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">טלפון 1</label>
+                          <input type="tel" placeholder="05X-XXXXXXX" value={complaintForm.phone} onChange={e => setComplaintForm(p => ({ ...p, phone: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">טלפון 2</label>
+                          <input type="tel" placeholder="05X-XXXXXXX" value={complaintForm.mobile2} onChange={e => setComplaintForm(p => ({ ...p, mobile2: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
                           <label className="text-xs font-black text-slate-500 mb-1.5 block">עדיפות</label>
                           <select value={complaintForm.priority} onChange={e => setComplaintForm(p => ({ ...p, priority: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
                             <option value="דחוף">דחוף (SLA: 2 ימים)</option>
@@ -2861,7 +3096,7 @@ const App = () => {
                           </select>
                         </div>
                         <div>
-                          <label className="text-xs font-black text-slate-500 mb-1.5 block">הקצאה למטפל</label>
+                          <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל ראשי</label>
                           <select value={complaintForm.assignedTo} onChange={e => setComplaintForm(p => ({ ...p, assignedTo: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
                             <option value="">— לא מוקצה —</option>
                             {usersList.filter(u => u.active === 'TRUE').map(u => (
@@ -2869,6 +3104,15 @@ const App = () => {
                             ))}
                           </select>
                         </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-black text-slate-500 mb-1.5 block">מטפל שני <span className="text-slate-400 font-medium">(אופציונלי)</span></label>
+                        <select value={complaintForm.responsibility2} onChange={e => setComplaintForm(p => ({ ...p, responsibility2: e.target.value }))} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-purple-500/20">
+                          <option value="">— ללא מטפל שני —</option>
+                          {usersList.filter(u => u.active === 'TRUE').map(u => (
+                            <option key={u.id} value={u.username}>{u.fullName || u.username}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="text-xs font-black text-slate-500 mb-1.5 block">תמונות</label>
@@ -2901,8 +3145,8 @@ const App = () => {
                     {/* Stats row */}
                     {(() => {
                       const now = new Date();
-                      const isClosedC = c => (c.closed && String(c.closed).trim() !== '' && String(c.closed).toUpperCase() !== 'FALSE') || c.status === 'סגור';
-                      const effSt = c => isClosedC(c) ? 'סגור' : (c.status || 'פתוח');
+                      const isClosedC = c => { const s = String(c.status || '').trim(); return s === 'סגור' || s === 'בוצע' || s.toUpperCase() === 'TRUE'; };
+                      const effSt = c => isClosedC(c) ? 'סגור' : (String(c.status || '').trim() === 'בטיפול' ? 'בטיפול' : 'פתוח');
                       const open = visibleComplaints.filter(c => effSt(c) === 'פתוח').length;
                       const inProgress = visibleComplaints.filter(c => effSt(c) === 'בטיפול').length;
                       const closed = visibleComplaints.filter(c => effSt(c) === 'סגור').length;
@@ -2934,8 +3178,8 @@ const App = () => {
 
                     {/* Toolbar */}
                     {(() => {
-                      const isClosedC = c => (c.closed && String(c.closed).trim() !== '' && String(c.closed).toUpperCase() !== 'FALSE') || c.status === 'סגור';
-                      const effStC = c => isClosedC(c) ? 'סגור' : (c.status || 'פתוח');
+                      const isClosedC = c => { const s = String(c.status || '').trim(); return s === 'סגור' || s === 'בוצע' || s.toUpperCase() === 'TRUE'; };
+                      const effStC = c => isClosedC(c) ? 'סגור' : (String(c.status || '').trim() === 'בטיפול' ? 'בטיפול' : 'פתוח');
                       const fmtD = (v) => { if (!v) return null; const d = parseDateLogic(v) || new Date(v); return (!d || isNaN(d.getTime())) ? String(v) : d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit', year: 'numeric' }); };
                       const assignees = [...new Set(visibleComplaints.map(c => c.assignedTo).filter(Boolean))];
                       const receivers = [...new Set(visibleComplaints.map(c => c.submittedBy).filter(Boolean))];
