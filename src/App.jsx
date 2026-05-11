@@ -93,11 +93,12 @@ const parseDateLogic = (val) => {
 };
 
 const formatILS = (val) => {
-  const absVal = Math.abs(val || 0);
-  const formatted = new Intl.NumberFormat('he-IL', {
-    style: 'currency', currency: 'ILS', minimumFractionDigits: 0, maximumFractionDigits: 0
+  const n = val || 0;
+  const absVal = Math.abs(n);
+  const digits = new Intl.NumberFormat('he-IL', {
+    minimumFractionDigits: 0, maximumFractionDigits: 0
   }).format(absVal);
-  return (val || 0) < 0 ? `-${formatted}` : formatted;
+  return n < 0 ? `-₪${digits}` : `₪${digits}`;
 };
 
 const cleanStr = (s) => {
@@ -292,6 +293,9 @@ const App = () => {
 
   const [mainTab, setMainTab] = useState('budget');
   const [viewMode, setViewMode] = useState('dashboard');
+  const [tabarData, setTabarData] = useState([]);
+  const [tabarLoading, setTabarLoading] = useState(false);
+  const [tabarSubView, setTabarSubView] = useState('dashboard');
   const [activeWingId, setActiveWingId] = useState(null);
 
   const [workplanQuarter, setWorkplanQuarter] = useState(0);
@@ -374,6 +378,17 @@ const App = () => {
     const allInScope = new Set([myUser, ...subordinates].filter(Boolean));
     return complaints.filter(c => allInScope.has(c.assignedTo) || c.submittedBy === myUser);
   }, [complaints, complaintsRole, currentUser, usersList]);
+
+  const visibleTabar = useMemo(() => {
+    if (!currentUser || tabarData.length === 0) return [];
+    if (currentUser.role === 'ADMIN') return tabarData;
+    const myTargets = [currentUser.target1, currentUser.target2].filter(Boolean).map(t => cleanStr(t));
+    return tabarData.filter(item => {
+      const wings = [item.wing1, item.wing2, item.wing3].filter(Boolean).map(w => cleanStr(w));
+      const depts = [item.dept1, item.dept2, item.dept3].filter(Boolean).map(d => cleanStr(d));
+      return myTargets.some(t => wings.includes(t) || depts.includes(t));
+    });
+  }, [tabarData, currentUser]);
 
   const canEditQuarter = (q) => {
     if (currentUser?.role === 'ADMIN') return true;
@@ -719,6 +734,22 @@ const App = () => {
       else showToast('שגיאת GAS (פניות): ' + (data.error || JSON.stringify(data)), 'error', 8000);
     } catch (err) { console.error('loadComplaints error:', err); showToast('שגיאה בטעינת פניות: ' + err.message, 'error', 6000); }
     finally { setComplaintsLoading(false); }
+  };
+
+  const loadTabar = async () => {
+    setTabarLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listTabar&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) setTabarData((data.items || []).map(item => ({
+          ...item,
+          budget:  (item.budget  || 0) * 1000,
+          balance: (item.balance || 0) * 1000,
+          income:  (item.income  || 0) * 1000,
+        })));
+      else showToast('שגיאה בטעינת תב"רים: ' + (data.error || ''), 'error', 6000);
+    } catch (err) { showToast('שגיאה בטעינת תב"רים: ' + err.message, 'error', 6000); }
+    finally { setTabarLoading(false); }
   };
 
   const uploadComplaintImageFile = async (file) => {
@@ -1198,7 +1229,9 @@ const App = () => {
 
       const rows = raw.slice(1)
         .map((row, i) => {
-          const fileId = String(row[idIdx] || '').trim().split('.')[0];
+          const fileId   = String(row[idIdx] || '').trim().split('.')[0];
+          const fileExec = cleanNum(row[9]);    // J — ביצוע בלבד
+          const fileTotal = cleanNum(row[11]);  // L — ביצוע + שריון שנתי (סה"כ)
           return {
             rowIndex: i,
             fileId,
@@ -1206,10 +1239,10 @@ const App = () => {
             fileWing: String(wingIdx !== -1 ? row[wingIdx] : '').trim(),
             fileDept: String(row[deptIdx] || '').trim(),
             fileType: detectType(fileId),
-            a2026:    cleanNum(row[a26Idx]),
-            commit:   cleanNum(row[cIdx]),
-            col10:    cleanNum(row[9]),   // עמודה 10 לפי מיקום קבוע — ביצוע
-            col12:    cleanNum(row[11]),  // עמודה 12 לפי מיקום קבוע — ביצוע+שריון
+            a2026:  cleanNum(row[a26Idx]),
+            commit: Math.max(fileTotal - fileExec, 0), // שריון = סה"כ פחות ביצוע
+            col10:  fileExec,
+            col12:  fileTotal,
           };
         })
         .filter(r => r.fileId);
@@ -1635,6 +1668,7 @@ const App = () => {
           <div className="hidden sm:flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
             <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תקציב</button>
             <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תכניות עבודה</button>
+            <button onClick={async () => { setMainTab('tabar'); if (tabarData.length === 0) await loadTabar(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'tabar' ? 'bg-white text-orange-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תב"ר</button>
             {complaintsRole && <button onClick={async () => { setMainTab('complaints'); await loadComplaints(); if (usersList.length === 0) loadUsers(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>פניות ציבור</button>}
             {isAharony && <button onClick={async () => { setMainTab('users'); await loadUsers(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>משתמשים</button>}
           </div>
@@ -1698,6 +1732,15 @@ const App = () => {
                         <TableProperties size={18} className={complaintsSubView === 'list' ? 'text-blue-400' : 'text-slate-400'} /> עדכון פניות
                       </button>
                     )}
+                  </>
+                ) : mainTab === 'tabar' ? (
+                  <>
+                    <button onClick={() => { setTabarSubView('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${tabarSubView === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-orange-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <LayoutDashboard size={18} className={tabarSubView === 'dashboard' ? 'text-orange-400' : 'text-slate-400'} /> תמונת מצב
+                    </button>
+                    <button onClick={() => { setTabarSubView('table'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${tabarSubView === 'table' ? 'bg-slate-900 text-white shadow-md border-orange-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <TableProperties size={18} className={tabarSubView === 'table' ? 'text-orange-400' : 'text-slate-400'} /> פירוט תב"רים
+                    </button>
                   </>
                 ) : (
                   <>
@@ -1820,6 +1863,8 @@ const App = () => {
               <h2 className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
                 {mainTab === 'users' ? 'ניהול גישה והרשאות' : mainTab === 'complaints' ? (
                   <><MessageSquare className="text-purple-500 hidden sm:block" size={28} />פניות ציבור</>
+                ) : mainTab === 'tabar' ? (
+                  <><Wallet className="text-orange-500 hidden sm:block" size={28} />תב"רים</>
                 ) : (
                   <>{mainTab === 'budget' && <Wallet className="text-emerald-500 hidden sm:block" size={28} />}{mainTab === 'workplan' && <Target className="text-blue-500 hidden sm:block" size={28} />}{scopeTitle}</>
                 )}
@@ -1831,6 +1876,7 @@ const App = () => {
                 {mainTab === 'workplan' && viewMode === 'dashboard' && 'מעקב התקדמות ויעדים אסטרטגיים.'}
                 {mainTab === 'workplan' && viewMode === 'table' && 'עדכון סטטוסים והערות למשימות שוטפות.'}
                 {mainTab === 'complaints' && 'רישום, מעקב וטיפול בפניות תושבים.'}
+                {mainTab === 'tabar' && 'תקציב בלתי רגיל — מעקב תקציב, יתרות וסטטוסי גבייה.'}
               </p>
             </div>
 
@@ -2679,6 +2725,254 @@ const App = () => {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* --------- TABAR TAB --------- */}
+            {mainTab === 'tabar' && (
+              <div className="space-y-6">
+                {tabarLoading ? (
+                  <div className="flex items-center justify-center py-20 text-slate-400"><Loader2 size={28} className="animate-spin mr-3" /> טוען תב"רים...</div>
+                ) : (() => {
+                  const totalBudget  = visibleTabar.reduce((s, i) => s + (i.budget  || 0), 0);
+                  const totalBalance = visibleTabar.reduce((s, i) => s + (i.balance || 0), 0);
+                  const totalIncome  = visibleTabar.reduce((s, i) => s + (i.income  || 0), 0);
+                  const totalExecuted = totalBudget - totalBalance;
+                  const execPct = totalBudget > 0 ? Math.round((totalExecuted / totalBudget) * 100) : 0;
+                  const sharedCount = visibleTabar.filter(item =>
+                    [[item.wing1,item.dept1],[item.wing2,item.dept2],[item.wing3,item.dept3]].filter(([w,d])=>w||d).length > 1
+                  ).length;
+                  const overdueTabar = visibleTabar.filter(i => i.balance < 0);
+
+                  if (tabarSubView === 'dashboard') return (
+                    <>
+                      {/* KPI row */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center shrink-0"><Wallet size={18} className="text-orange-500" /></div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-tight">סה"כ תקציב</p>
+                          </div>
+                          <p className="text-xl font-black text-slate-800 tabular-nums" dir="ltr">{formatILS(totalBudget)}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">{visibleTabar.length} תב"רים</p>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center shrink-0"><TrendingUp size={18} className="text-blue-500" /></div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-tight">בוצע עד כה</p>
+                          </div>
+                          <p className="text-xl font-black text-blue-700 tabular-nums" dir="ltr">{formatILS(totalExecuted)}</p>
+                          <div className="mt-2 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full bg-blue-500 rounded-full transition-all" style={{width: `${Math.min(execPct,100)}%`}} />
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-1">{execPct}% מהתקציב</p>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${totalBalance < 0 ? 'bg-red-50' : 'bg-emerald-50'}`}><TrendingDown size={18} className={totalBalance < 0 ? 'text-red-500' : 'text-emerald-500'} /></div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-tight">יתרת ביצוע</p>
+                          </div>
+                          <p className={`text-xl font-black tabular-nums ${totalBalance < 0 ? 'text-red-600' : 'text-emerald-700'}`} dir="ltr">{formatILS(totalBalance)}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">{overdueTabar.length > 0 ? <span className="text-red-500 font-bold">{overdueTabar.length} תב"רים בחריגה</span> : 'ללא חריגות'}</p>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center shrink-0"><TrendingUp size={18} className="text-amber-500" /></div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider leading-tight">הכנסות לגבייה</p>
+                          </div>
+                          <p className="text-xl font-black text-amber-700 tabular-nums" dir="ltr">{formatILS(totalIncome)}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">{sharedCount > 0 ? <span className="text-orange-600 font-bold">{sharedCount} תב"רים משותפים</span> : 'ללא תב"רים משותפים'}</p>
+                        </div>
+                      </div>
+
+                      {/* Charts row */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Top תב"רים by budget */}
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <h3 className="text-sm font-black text-slate-700 mb-4">10 תב"רים גדולים ביותר — לפי תקציב</h3>
+                          {visibleTabar.length === 0 ? (
+                            <p className="text-center text-slate-400 text-sm py-8">אין נתונים</p>
+                          ) : (
+                            <ResponsiveContainer width="100%" height={280}>
+                              <BarChart
+                                layout="vertical"
+                                data={[...visibleTabar].sort((a,b) => b.budget - a.budget).slice(0,10).map(i => ({
+                                  name: i.name.length > 22 ? i.name.slice(0,22)+'…' : i.name,
+                                  תקציב: i.budget,
+                                  יתרה: Math.max(i.balance, 0),
+                                }))}
+                                margin={{top: 0, right: 10, left: 0, bottom: 0}}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                                <XAxis type="number" tick={{fontSize: 9, fill: '#94a3b8', fontWeight: 700}} tickFormatter={v => v >= 1000000 ? `${(v/1000000).toFixed(1)}M` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
+                                <YAxis type="category" dataKey="name" width={130} tick={{fontSize: 9, fill: '#475569', fontWeight: 700}} />
+                                <Tooltip formatter={(v) => formatILS(v)} contentStyle={{borderRadius: '10px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', fontWeight: 'bold', fontSize: 12}} />
+                                <Bar dataKey="תקציב" fill="#fb923c" radius={[0,4,4,0]} barSize={14} />
+                                <Bar dataKey="יתרה" fill="#34d399" radius={[0,4,4,0]} barSize={8} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
+
+                        {/* Progress per תב"ר — top 8 by budget */}
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+                          <h3 className="text-sm font-black text-slate-700 mb-4">אחוז ביצוע — לפי תב"ר</h3>
+                          <div className="space-y-3 max-h-[280px] overflow-y-auto pl-1">
+                            {[...visibleTabar].sort((a,b) => b.budget - a.budget).slice(0,12).map((item, idx) => {
+                              const executed = item.budget - item.balance;
+                              const pct = item.budget > 0 ? Math.min(Math.round((executed / item.budget) * 100), 100) : 0;
+                              const isOver = item.balance < 0;
+                              return (
+                                <div key={item.id || idx}>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] font-bold text-slate-700 truncate max-w-[60%]">{item.name}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {isOver && <span className="text-[9px] font-black text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full">חריגה</span>}
+                                      <span className={`text-[11px] font-black tabular-nums ${isOver ? 'text-red-600' : pct > 80 ? 'text-orange-600' : 'text-slate-600'}`}>{pct}%</span>
+                                    </div>
+                                  </div>
+                                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full transition-all ${isOver ? 'bg-red-400' : pct > 80 ? 'bg-orange-400' : 'bg-emerald-400'}`} style={{width: `${pct}%`}} />
+                                  </div>
+                                  <div className="flex justify-between mt-0.5">
+                                    <span className="text-[9px] text-slate-400">ביצוע: {formatILS(executed)}</span>
+                                    <span className="text-[9px] text-slate-400">תקציב: {formatILS(item.budget)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Overdue תב"רים */}
+                      {overdueTabar.length > 0 && (
+                        <div className="bg-white rounded-2xl border border-red-100 shadow-sm overflow-hidden">
+                          <div className="px-6 py-3 bg-red-50 border-b border-red-100 flex items-center gap-2">
+                            <ShieldAlert size={16} className="text-red-500" />
+                            <h3 className="text-sm font-black text-red-700">תב"רים בחריגת תקציב ({overdueTabar.length})</h3>
+                          </div>
+                          <div className="divide-y divide-red-50">
+                            {overdueTabar.map((item, idx) => (
+                              <div key={item.id || idx} className="px-6 py-3 flex items-center justify-between gap-4">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-800 truncate">{item.name}</p>
+                                  <p className="text-[10px] text-slate-400 font-mono">{item.id}</p>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-sm font-black text-red-600 tabular-nums" dir="ltr">{formatILS(item.balance)}</p>
+                                  <p className="text-[10px] text-slate-400">תקציב: {formatILS(item.budget)}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+
+                  // --- פירוט view ---
+                  return (
+                    <>
+                      {/* KPI strip */}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center shrink-0"><Wallet size={16} className="text-orange-500" /></div>
+                          <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">תקציב</p><p className="text-sm font-black text-slate-800 tabular-nums" dir="ltr">{formatILS(totalBudget)}</p></div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${totalBalance < 0 ? 'bg-red-50' : 'bg-emerald-50'}`}><TrendingDown size={16} className={totalBalance < 0 ? 'text-red-500' : 'text-emerald-500'} /></div>
+                          <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">יתרה</p><p className={`text-sm font-black tabular-nums ${totalBalance < 0 ? 'text-red-600' : 'text-emerald-700'}`} dir="ltr">{formatILS(totalBalance)}</p></div>
+                        </div>
+                        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4 flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0"><TrendingUp size={16} className="text-amber-500" /></div>
+                          <div><p className="text-[10px] font-black text-slate-400 uppercase tracking-wider">הכנסות</p><p className="text-sm font-black text-amber-700 tabular-nums" dir="ltr">{formatILS(totalIncome)}</p></div>
+                        </div>
+                      </div>
+
+                      {/* Table */}
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+                          <h3 className="font-black text-slate-700 text-sm">פירוט תב"רים</h3>
+                          <div className="flex items-center gap-3">
+                            <button onClick={loadTabar} disabled={tabarLoading} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors"><RefreshCw size={12} className={tabarLoading ? 'animate-spin' : ''} /> רענן</button>
+                            <span className="text-xs text-slate-400 font-bold">{visibleTabar.length} תב"רים</span>
+                          </div>
+                        </div>
+                        {visibleTabar.length === 0 ? (
+                          <div className="py-16 text-center text-slate-400 font-bold">אין תב"רים להצגה</div>
+                        ) : (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm" dir="rtl">
+                              <thead>
+                                <tr className="border-b border-slate-100 bg-slate-50/70">
+                                  <th className="text-right px-4 py-3 text-[11px] font-black text-slate-400">מספר</th>
+                                  <th className="text-right px-4 py-3 text-[11px] font-black text-slate-400">שם התב"ר</th>
+                                  <th className="text-left px-4 py-3 text-[11px] font-black text-slate-400">תקציב</th>
+                                  <th className="text-left px-4 py-3 text-[11px] font-black text-slate-400">ביצוע</th>
+                                  <th className="text-left px-4 py-3 text-[11px] font-black text-slate-400">יתרת ביצוע</th>
+                                  <th className="text-left px-4 py-3 text-[11px] font-black text-slate-400">הכנסות לגבייה</th>
+                                  <th className="text-right px-4 py-3 text-[11px] font-black text-slate-400">שיוך</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {visibleTabar.map((item, idx) => {
+                                  const allWings = [...new Set([item.wing1, item.wing2, item.wing3].filter(Boolean))];
+                                  const allDepts = [...new Set([item.dept1, item.dept2, item.dept3].filter(Boolean))];
+                                  const sharedReal = [[item.wing1,item.dept1],[item.wing2,item.dept2],[item.wing3,item.dept3]].filter(([w,d])=>w||d).length > 1;
+                                  const executed = item.budget - item.balance;
+                                  const pct = item.budget > 0 ? Math.min(Math.round((executed / item.budget) * 100), 100) : 0;
+                                  return (
+                                    <tr key={item.id || idx} className="border-b border-slate-50 hover:bg-orange-50/30 transition-colors">
+                                      <td className="px-4 py-3 font-mono text-xs text-slate-500 font-bold whitespace-nowrap">{item.id}</td>
+                                      <td className="px-4 py-3 font-bold text-slate-800">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span>{item.name}</span>
+                                          {sharedReal && <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full border border-orange-200 whitespace-nowrap">תב"ר משותף</span>}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 font-bold text-slate-700 text-left whitespace-nowrap tabular-nums" dir="ltr">{formatILS(item.budget)}</td>
+                                      <td className="px-4 py-3 text-left whitespace-nowrap" dir="ltr">
+                                        <div>
+                                          <span className="font-bold text-blue-700 tabular-nums">{formatILS(executed)}</span>
+                                          <div className="h-1 bg-slate-100 rounded-full mt-1 w-16 overflow-hidden">
+                                            <div className={`h-full rounded-full ${item.balance < 0 ? 'bg-red-400' : 'bg-blue-400'}`} style={{width:`${pct}%`}} />
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-3 font-bold text-left whitespace-nowrap tabular-nums" dir="ltr">
+                                        <span className={item.balance < 0 ? 'text-red-600' : 'text-emerald-600'}>{formatILS(item.balance)}</span>
+                                      </td>
+                                      <td className="px-4 py-3 font-bold text-left whitespace-nowrap tabular-nums" dir="ltr">
+                                        <span className={item.income ? 'text-amber-600' : 'text-slate-300'}>{item.income ? formatILS(item.income) : '—'}</span>
+                                      </td>
+                                      <td className="px-4 py-3">
+                                        <div className="flex flex-wrap gap-1">
+                                          {allWings.map(w => <span key={w} className="text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">{w}</span>)}
+                                          {allDepts.map(d => <span key={d} className="text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full whitespace-nowrap">{d}</span>)}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                              <tfoot>
+                                <tr className="bg-slate-50 border-t-2 border-slate-200">
+                                  <td colSpan={2} className="px-4 py-3 text-xs font-black text-slate-500">סה"כ</td>
+                                  <td className="px-4 py-3 font-black text-slate-700 text-left tabular-nums" dir="ltr">{formatILS(totalBudget)}</td>
+                                  <td className="px-4 py-3 font-black text-blue-700 text-left tabular-nums" dir="ltr">{formatILS(totalBudget - totalBalance)}</td>
+                                  <td className="px-4 py-3 font-black text-left tabular-nums" dir="ltr"><span className={totalBalance < 0 ? 'text-red-600' : 'text-emerald-600'}>{formatILS(totalBalance)}</span></td>
+                                  <td className="px-4 py-3 font-black text-amber-600 text-left tabular-nums" dir="ltr">{formatILS(totalIncome)}</td>
+                                  <td />
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
 
@@ -3661,6 +3955,10 @@ const App = () => {
               <span>פניות</span>
             </button>
           )}
+          <button onClick={async () => { setMainTab('tabar'); if (tabarData.length === 0) await loadTabar(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'tabar' ? 'text-orange-600' : 'text-slate-400'}`}>
+            <Wallet size={20} strokeWidth={2} className={mainTab === 'tabar' ? 'text-orange-500' : ''} />
+            <span>תב"ר</span>
+          </button>
           {isAharony && (
             <button onClick={async () => { setMainTab('users'); await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
               <Users size={20} strokeWidth={2} />
