@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import * as XLSX from 'xlsx';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie
@@ -265,6 +266,19 @@ const StatCard = ({ title, value, subtext, icon: Icon, isHighlight, progress }) 
   </div>
 );
 
+const normalizeUser = (u) => {
+  if (!u) return u;
+  console.log('[normalizeUser] raw input:', JSON.stringify(u));
+  const out = { ...u };
+  for (const q of [1, 2, 3, 4]) {
+    const val = out[`Q${q}`] ?? out[`q${q}`];
+    out[`q${q}`] = val === true || String(val).toUpperCase() === 'TRUE';
+    delete out[`Q${q}`];
+  }
+  console.log('[normalizeUser] output:', JSON.stringify(out));
+  return out;
+};
+
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -432,11 +446,12 @@ const App = () => {
       if (saved) {
         const { user, lastActive } = JSON.parse(saved);
         if (Date.now() - lastActive < SESSION_TIMEOUT) {
-          setCurrentUser(user);
+          const normalizedUser = normalizeUser(user);
+          setCurrentUser(normalizedUser);
           setIsLoggedIn(true);
           setSessionRestored(true);
-          if (user.role === 'WING') setActiveWingId(cleanStr(user.target1) || null);
-          localStorage.setItem(SESSION_KEY, JSON.stringify({ user, lastActive: Date.now() }));
+          if (normalizedUser.role === 'WING') setActiveWingId(cleanStr(normalizedUser.target1) || null);
+          localStorage.setItem(SESSION_KEY, JSON.stringify({ user: normalizedUser, lastActive: Date.now() }));
         } else {
           localStorage.removeItem(SESSION_KEY);
         }
@@ -629,6 +644,17 @@ const App = () => {
     if (sessionRestored) loadData();
   }, [sessionRestored]);
 
+  // טעינת רקע — תב"ר ופניות נטענים בשקט אחרי הנתונים הראשיים
+  const didPreload = useRef(false);
+  useEffect(() => {
+    if (!loading && isLoggedIn && lastRefreshedAt && !didPreload.current) {
+      didPreload.current = true;
+      setTimeout(() => {
+        if (tabarData.length === 0) loadTabar().catch(() => {});
+      }, 800);
+    }
+  }, [loading, isLoggedIn, lastRefreshedAt]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError("");
@@ -639,9 +665,10 @@ const App = () => {
       const res = await fetch(`${GAS_SCRIPT_URL}?action=login&username=${encodeURIComponent(uInput)}&password=${encodeURIComponent(pInput)}`).then((r) => ensureOk(r, 'Login'));
       const data = await res.json();
       if (data.success && data.user) {
-        setCurrentUser(data.user);
+        const normalizedUser = normalizeUser(data.user);
+        setCurrentUser(normalizedUser);
         setIsLoggedIn(true);
-        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user: data.user, lastActive: Date.now() })); } catch (_) {}
+        try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user: normalizedUser, lastActive: Date.now() })); } catch (_) {}
         setShowOnlyBudgetAlerts(false);
         setShowOnlyOverdueTasks(false);
         setMainTab('budget');
@@ -1666,11 +1693,11 @@ const App = () => {
           {/* ---------------------------------- */}
 
           <div className="hidden sm:flex bg-slate-100/80 p-1 rounded-xl border border-slate-200/60">
-            <button onClick={() => { setMainTab('budget'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תקציב</button>
-            <button onClick={() => { setMainTab('workplan'); setViewMode('dashboard'); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תכניות עבודה</button>
-            <button onClick={async () => { setMainTab('tabar'); if (tabarData.length === 0) await loadTabar(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'tabar' ? 'bg-white text-orange-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תב"ר</button>
-            {complaintsRole && <button onClick={async () => { setMainTab('complaints'); await loadComplaints(); if (usersList.length === 0) loadUsers(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>פניות ציבור</button>}
-            {isAharony && <button onClick={async () => { setMainTab('users'); await loadUsers(); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>משתמשים</button>}
+            <button onClick={() => { flushSync(() => { setMainTab('budget'); setViewMode('dashboard'); }); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תקציב</button>
+            <button onClick={() => { flushSync(() => { setMainTab('workplan'); setViewMode('dashboard'); }); }} className={`px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>תכניות עבודה</button>
+            <button onClick={async () => { flushSync(() => setMainTab('tabar')); if (tabarData.length === 0) await loadTabar(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'tabar' ? 'bg-white text-orange-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{tabarLoading && <Loader2 size={13} className="animate-spin" />}תב"ר</button>
+            {complaintsRole && <button onClick={async () => { flushSync(() => setMainTab('complaints')); if (complaints.length === 0) await loadComplaints(); if (usersList.length === 0) loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{complaintsLoading && <Loader2 size={13} className="animate-spin" />}פניות ציבור</button>}
+            {isAharony && <button onClick={async () => { flushSync(() => setMainTab('users')); if (usersList.length === 0) await loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{usersLoading && <Loader2 size={13} className="animate-spin" />}משתמשים</button>}
           </div>
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
@@ -1711,11 +1738,15 @@ const App = () => {
           </div>
           <div className="p-4 border-b border-slate-100 sm:hidden space-y-2 shrink-0">
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">מודולים</p>
-             {['budget', 'workplan', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : [])].map(tab => (
-                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') loadUsers(); else if (tab === 'complaints') { loadComplaints(); if (usersList.length === 0) loadUsers(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
-                  {tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'complaints' ? 'פניות ציבור' : 'ניהול משתמשים'}
+             {['budget', 'workplan', 'tabar', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : [])].map(tab => {
+               const isTabLoading = (tab === 'tabar' && tabarLoading) || (tab === 'complaints' && complaintsLoading) || (tab === 'users' && usersLoading);
+               return (
+                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') { if (usersList.length === 0) loadUsers(); } else if (tab === 'complaints') { if (complaints.length === 0) loadComplaints(); if (usersList.length === 0) loadUsers(); } else if (tab === 'tabar') { if (tabarData.length === 0) loadTabar(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-2 text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : tab === 'tabar' ? 'bg-orange-50 text-orange-800 border border-orange-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
+                  {isTabLoading && <Loader2 size={14} className="animate-spin shrink-0" />}
+                  <span>{tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'tabar' ? 'תב"ר' : tab === 'complaints' ? 'פניות ציבור' : 'ניהול משתמשים'}</span>
                 </button>
-             ))}
+               );
+             })}
           </div>
           
           {mainTab !== 'users' && (
@@ -2147,7 +2178,7 @@ const App = () => {
 
                 {viewMode === 'table' && (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
                        <div className="flex w-full lg:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all flex-1 lg:max-w-xs">
                           <Search size={16} className="text-slate-400 mr-2 shrink-0" /><input type="text" placeholder="חיפוש סעיף..." value={budgetSearch} onChange={(e) => setBudgetSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
                        </div>
@@ -2217,7 +2248,7 @@ const App = () => {
 
                 {viewMode === 'control' && (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
                        <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-full lg:w-auto shrink-0">
                          <button onClick={() => setControlCompareBy('a2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'a2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע</button>
                          <button onClick={() => setControlCompareBy('commitTotal2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'commitTotal2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע+שריון</button>
@@ -2468,7 +2499,7 @@ const App = () => {
                   </>
                 ) : (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col md:flex-row gap-3 items-center justify-between sticky top-20 z-40">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col md:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
                        <div className="flex w-full md:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all flex-1 md:max-w-md">
                           <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                           <input type="text" placeholder="חיפוש משימה, פעילות או מזהה..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
@@ -2592,7 +2623,7 @@ const App = () => {
                       </div>
                     )}
 
-                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden pb-32">
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm pb-32">
                        <table className="w-full text-right relative">
                           <thead>
                              <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
@@ -2623,7 +2654,7 @@ const App = () => {
                                 const isPrevQuarterMissing = workplanQuarter > 1 && !t[`q${workplanQuarter - 1}`];
 
                                 return (
-                                   <tr key={t.id} className={`transition-colors group border-r-4 ${currentStatus ? `${STATUS_CONFIG[currentStatus].bg} hover:brightness-95` : 'hover:bg-slate-50/40 border-transparent'}`} style={{ borderRightColor: currentStatus ? STATUS_CONFIG[currentStatus].color : 'transparent' }}>
+                                   <tr key={t.id} className={`transition-colors group border-r-4 ${currentStatus ? `${STATUS_CONFIG[currentStatus].bg} ${STATUS_CONFIG[currentStatus].hoverBg}` : 'hover:bg-slate-50/40 border-transparent'}`} style={{ borderRightColor: currentStatus ? STATUS_CONFIG[currentStatus].color : 'transparent' }}>
                                       <td className="py-4 px-5 text-[10px] font-mono text-slate-400">{t.id}</td>
                                       <td className="py-4 px-5 text-xs font-bold text-slate-600">{t.dept}</td>
                                       <td className="py-4 px-5">
@@ -2634,7 +2665,7 @@ const App = () => {
                                       <td className="py-4 px-5 text-center">
                                          {latestPrev ? (<div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${STATUS_CONFIG[latestPrev].bg} ${STATUS_CONFIG[latestPrev].text} ${STATUS_CONFIG[latestPrev].border}`}><History size={10} className="opacity-70" />{STATUS_CONFIG[latestPrev].label} <span className="opacity-50 font-normal">(ר{prevStatuses[prevStatuses.length - 1]})</span></div>) : <span className="text-slate-300 text-xl leading-none">-</span>}
                                       </td>
-                                      <td className="py-4 px-5">
+                                      <td className="py-4 px-5 relative overflow-visible">
                                         {isPrevQuarterMissing
                                           ? <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border bg-amber-50 text-amber-600 border-amber-200 cursor-not-allowed" title={`לא ניתן לעדכן — רבעון ${workplanQuarter - 1} טרם עודכן`}>🔒 לא ניתן לעדכן — יש לעדכן תחילה רבעון {workplanQuarter - 1}</div>
                                           : canEditQuarter(workplanQuarter)
@@ -3950,18 +3981,18 @@ const App = () => {
             <span>עדכון משימות</span>
           </button>
           {complaintsRole && (
-            <button onClick={async () => { setMainTab('complaints'); await loadComplaints(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'complaints' ? 'text-purple-600' : 'text-slate-400'}`}>
-              <MessageSquare size={20} strokeWidth={2} />
+            <button onClick={async () => { setMainTab('complaints'); if (complaints.length === 0) await loadComplaints(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'complaints' ? 'text-purple-600' : 'text-slate-400'}`}>
+              {complaintsLoading ? <Loader2 size={20} className="animate-spin" /> : <MessageSquare size={20} strokeWidth={2} />}
               <span>פניות</span>
             </button>
           )}
           <button onClick={async () => { setMainTab('tabar'); if (tabarData.length === 0) await loadTabar(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'tabar' ? 'text-orange-600' : 'text-slate-400'}`}>
-            <Wallet size={20} strokeWidth={2} className={mainTab === 'tabar' ? 'text-orange-500' : ''} />
+            {tabarLoading ? <Loader2 size={20} className="animate-spin" /> : <Wallet size={20} strokeWidth={2} className={mainTab === 'tabar' ? 'text-orange-500' : ''} />}
             <span>תב"ר</span>
           </button>
           {isAharony && (
-            <button onClick={async () => { setMainTab('users'); await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
-              <Users size={20} strokeWidth={2} />
+            <button onClick={async () => { setMainTab('users'); if (usersList.length === 0) await loadUsers(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-bold transition-colors ${mainTab === 'users' ? 'text-slate-800' : 'text-slate-400'}`}>
+              {usersLoading ? <Loader2 size={20} className="animate-spin" /> : <Users size={20} strokeWidth={2} />}
               <span>משתמשים</span>
             </button>
           )}
