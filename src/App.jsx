@@ -352,6 +352,14 @@ const PirutModal = React.memo(({ modal, initialRows, onClose, onSave }) => {
   );
 });
 
+const PRINTER_ITEM_IDS = new Set([
+  '1611000470','1611100470','1611300470','1612000470','1613000470','1614000470',
+  '1616000470','1621000470','1621100470','1621300470','1621730470','1623000470',
+  '1713400470','1714300470','1715000470','1722000470','1731000470','1731100470',
+  '1733200470','1733400470','1811000470','1817300470','1822100470','1823000470',
+  '1828200470','1828210470',
+]);
+
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -414,7 +422,7 @@ const App = () => {
   const [usersList, setUsersList] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   // שים לב שהוספתי את ה-email: ''
-  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false });
+  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false, userEditScope: '' });
   const [openStatusMenuId, setOpenStatusMenuId] = useState(null);
 
   // Upload wizard state
@@ -484,6 +492,24 @@ const App = () => {
   const [pirutRows, setPirutRows] = useState([]);
   const [execDate, setExecDate] = useState('');
   const [overwriteConfirm, setOverwriteConfirm] = useState(null);
+
+  // Workplan 2027 module
+  const [workplan2027SubView, setWorkplan2027SubView] = useState('intro');
+  const [workplan2027Tasks, setWorkplan2027Tasks] = useState([]);
+  const [workplan2027Loading, setWorkplan2027Loading] = useState(false);
+  const [wp2027FilterDept, setWp2027FilterDept] = useState('הכל');
+  const [wp2027Search, setWp2027Search] = useState('');
+  const [showPrevYearModal, setShowPrevYearModal] = useState(false);
+  const [prevYearSearch, setPrevYearSearch] = useState('');
+  const [wp2027PrevWing, setWp2027PrevWing] = useState('הכל');
+  const [wp2027PrevDept, setWp2027PrevDept] = useState('הכל');
+  const [importingTask, setImportingTask] = useState(null);
+  const [importDeadline, setImportDeadline] = useState('');
+  const [taskEditModal, setTaskEditModal] = useState(null);
+  const [isSavingTask, setIsSavingTask] = useState(false);
+  const [taskForm, setTaskForm] = useState({ wing: '', dept: '', activity: '', task: '', deadline: '', goalLink: '', successTarget: '', estimatedValue: '', budgetItemId: '', budgetItemName: '', budgetItemType: '', budgetItemQuery: '', sourcePrevYear: false, prevYearId: '' });
+  const [taskRows, setTaskRows] = useState([{ task: '', deadline: '', successTarget: '', estimatedValue: '', budgetItemId: '', budgetItemName: '', budgetItemType: '', budgetItemQuery: '' }]);
+  const [budgetItemSuggestions, setBudgetItemSuggestions] = useState([]);
 
   const isAharony      = currentUser?.user === 'aharony';
   const canEdit        = currentUser?.permissions !== 'VIEW';
@@ -604,6 +630,14 @@ const App = () => {
   useEffect(() => {
     if (mainTab === 'budget2027' && currentUser && newItemRequests.length === 0) {
       loadNewItemRequests();
+    }
+  }, [mainTab, currentUser]);
+
+  // טעינת נתוני תכנית עבודה 2027
+  useEffect(() => {
+    if (mainTab === 'workplan2027' && currentUser && workplan2027Tasks.length === 0) {
+      loadWorkplan2027();
+      if (tabarData.length === 0) loadTabar();
     }
   }, [mainTab, currentUser]);
 
@@ -880,7 +914,7 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        setUserForm({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false });
+        setUserForm({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false, userEditScope: '' });
         alert('המשתמש נוסף בהצלחה');
       } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
     } catch (err) { alert(`שגיאה: ${err.message || ''}`); }
@@ -958,6 +992,42 @@ const App = () => {
     } finally {
       setBudget2027Loading(false);
     }
+  };
+
+  const loadWorkplan2027 = async () => {
+    setWorkplan2027Loading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listWorkplan2027&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) setWorkplan2027Tasks(data.tasks || []);
+      else showToast('שגיאה בטעינת תכנית עבודה 2027: ' + (data.error || ''), 'error');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error'); }
+    finally { setWorkplan2027Loading(false); }
+  };
+
+  const saveWorkplan2027Task = async (formData) => {
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveWorkplan2027Task', ...formData, submittedBy: currentUser?.user })
+      }).then(r => ensureOk(r, 'Save WP2027'));
+      const data = await res.json();
+      if (data.success) { await loadWorkplan2027(); return true; }
+      showToast('שגיאה בשמירה: ' + (data.error || ''), 'error'); return false;
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error'); return false; }
+  };
+
+  const deleteWorkplan2027Task = async (id) => {
+    if (!window.confirm('למחוק משימה זו?')) return;
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'deleteWorkplan2027Task', id })
+      }).then(r => ensureOk(r, 'Delete WP2027'));
+      const data = await res.json();
+      if (data.success) await loadWorkplan2027();
+      else showToast('שגיאה במחיקה: ' + (data.error || ''), 'error');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error'); }
   };
 
   const saveDirectValue = async (rowId, column, numValue) => {
@@ -1353,10 +1423,14 @@ const App = () => {
 
     const fullBudgetData = useMemo(() => {
     let data = staticData;
-    if (currentUser?.role === 'WING') data = data.filter((i) => matchesUserTargets(i.wing, currentUser));
-    if (currentUser?.role === 'DEPT') data = data.filter((i) => matchesUserTargets(i.dept, currentUser));
-    if (activeWingId) data = data.filter((i) => sameKey(i.wing, activeWingId));
-    
+    const isItMgr  = !!currentUser?.itManager;
+    const isVehMgr = !!currentUser?.vehicleManager;
+    const isPrinterItem = (i) => PRINTER_ITEM_IDS.has(String(i.id));
+    const isVehicleItem = (i) => vehiclesStatic.some(v => String(v.budgetItem) === String(i.id));
+    if (currentUser?.role === 'WING') data = data.filter((i) => matchesUserTargets(i.wing, currentUser) || (isItMgr && isPrinterItem(i)) || (isVehMgr && isVehicleItem(i)));
+    if (currentUser?.role === 'DEPT') data = data.filter((i) => matchesUserTargets(i.dept, currentUser) || (isItMgr && isPrinterItem(i)) || (isVehMgr && isVehicleItem(i)));
+    if (activeWingId) data = data.filter((i) => sameKey(i.wing, activeWingId) || (isItMgr && isPrinterItem(i)) || (isVehMgr && isVehicleItem(i)));
+
     return data.map((item) => {
       const normalizedId = String(item.id).trim().split('.')[0];
       const e = executionMap[normalizedId] || { a2026: 0, commit: 0 };
@@ -1369,10 +1443,19 @@ const App = () => {
 
       return { ...item, a2024: cleanNum(item.a2024), b2025: cleanNum(item.b2025), b2026, a2026, commit, commitTotal2026 };
     });
-  }, [staticData, executionMap, activeWingId, currentUser]);
+  }, [staticData, executionMap, activeWingId, currentUser, vehiclesStatic]);
 
   const budgetDeptOptions = useMemo(() => Array.from(new Set(fullBudgetData.map((r) => cleanStr(r.dept)).filter(Boolean))).sort(), [fullBudgetData]);
   const wingOptions = useMemo(() => Array.from(new Set(fullBudgetData.map((r) => cleanStr(r.wing)).filter(Boolean))).sort(), [fullBudgetData]);
+  const vehicleItemIds = useMemo(() => new Set(vehiclesStatic.map(v => String(v.budgetItem)).filter(Boolean)), [vehiclesStatic]);
+  const getVehiclePirut = (budgetItemId) => {
+    const vList = vehiclesStatic.filter(v => String(v.budgetItem) === String(budgetItemId));
+    if (vList.length === 0) return [{ pirut: '', kamut: '1', alut: '', total: 0 }];
+    return vList.map(v => {
+      const parts = [v.license, v.vehicleType, (v.driver && v.driver !== 'רכב איגום' ? v.driver : '')].filter(Boolean);
+      return { pirut: parts.join(' — '), kamut: '1', alut: '', total: 0 };
+    });
+  };
 
   const filteredBudget2027 = useMemo(() => {
     let data = [...fullBudgetData];
@@ -1654,6 +1737,24 @@ const App = () => {
       rows = [['id', 'username', 'password', 'role', 'target1', 'target2', 'active']];
       usersList.forEach((u) => rows.push([u.id, u.username, u.password, u.role, u.target1, u.target2, u.active]));
       filename = 'users_export.csv';
+    }
+    if (mainTab === 'workplan2027') {
+      rows = [['מס"ד','אגף','מחלקה','קישור למטרת המועצה','תיאור פעילות','תיאור משימה','לו"ז לסיום','יעד הצלחה','סעיף תקציבי/תב"ר','אומדן עלות']];
+      workplan2027Tasks.forEach((t, idx) => {
+        rows.push([
+          idx + 1,
+          t.wing || '',
+          t.dept || '',
+          t.goalLink || '',
+          t.activity || '',
+          t.task || '',
+          t.deadline ? formatDate(t.deadline) : '',
+          t.successTarget || '',
+          t.budgetItemId ? `${t.budgetItemType === 'tabar' ? 'תב"ר ' : ''}${t.budgetItemId}${t.budgetItemName ? ' — ' + t.budgetItemName : ''}` : '',
+          t.estimatedValue || ''
+        ]);
+      });
+      filename = 'workplan2027_export.csv';
     }
     if (!rows.length) return; downloadCsv(rows, filename);
   };
@@ -2170,6 +2271,7 @@ const App = () => {
             {complaintsRole && <button onClick={async () => { flushSync(() => setMainTab('complaints')); if (complaints.length === 0) await loadComplaints(); if (usersList.length === 0) loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{complaintsLoading && <Loader2 size={13} className="animate-spin" />}פניות ציבור</button>}
             {isAharony && <button onClick={async () => { flushSync(() => setMainTab('users')); if (usersList.length === 0) await loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{usersLoading && <Loader2 size={13} className="animate-spin" />}משתמשים</button>}
             <button onClick={() => { flushSync(() => { setMainTab('budget2027'); setBudget2027SubView('intro'); }); if (Object.keys(budget2027Data).length === 0) loadBudget2027(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget2027' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{budget2027Loading && <Loader2 size={13} className="animate-spin" />}בניית תקציב 2027</button>
+            <button onClick={() => { flushSync(() => { setMainTab('workplan2027'); setWorkplan2027SubView('intro'); }); if (workplan2027Tasks.length === 0) loadWorkplan2027(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'workplan2027' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{workplan2027Loading && <Loader2 size={13} className="animate-spin" />}בניית תכניות עבודה 2027</button>
           </div>
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
@@ -2210,12 +2312,12 @@ const App = () => {
           </div>
           <div className="p-4 border-b border-slate-100 sm:hidden space-y-2 shrink-0">
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">מודולים</p>
-             {['budget', 'workplan', 'tabar', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : []), 'budget2027'].map(tab => {
-               const isTabLoading = (tab === 'tabar' && tabarLoading) || (tab === 'complaints' && complaintsLoading) || (tab === 'users' && usersLoading) || (tab === 'budget2027' && budget2027Loading);
+             {['budget', 'workplan', 'tabar', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : []), 'budget2027', 'workplan2027'].map(tab => {
+               const isTabLoading = (tab === 'tabar' && tabarLoading) || (tab === 'complaints' && complaintsLoading) || (tab === 'users' && usersLoading) || (tab === 'budget2027' && budget2027Loading) || (tab === 'workplan2027' && workplan2027Loading);
                return (
-                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') { if (usersList.length === 0) loadUsers(); } else if (tab === 'complaints') { if (complaints.length === 0) loadComplaints(); if (usersList.length === 0) loadUsers(); } else if (tab === 'tabar') { if (tabarData.length === 0) loadTabar(); } else if (tab === 'budget2027') { if (Object.keys(budget2027Data).length === 0) loadBudget2027(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-2 text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : tab === 'tabar' ? 'bg-orange-50 text-orange-800 border border-orange-100' : tab === 'budget2027' ? 'bg-blue-50 text-blue-800 border border-blue-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') { if (usersList.length === 0) loadUsers(); } else if (tab === 'complaints') { if (complaints.length === 0) loadComplaints(); if (usersList.length === 0) loadUsers(); } else if (tab === 'tabar') { if (tabarData.length === 0) loadTabar(); } else if (tab === 'budget2027') { if (Object.keys(budget2027Data).length === 0) loadBudget2027(); } else if (tab === 'workplan2027') { if (workplan2027Tasks.length === 0) loadWorkplan2027(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-2 text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : tab === 'tabar' ? 'bg-orange-50 text-orange-800 border border-orange-100' : tab === 'budget2027' ? 'bg-blue-50 text-blue-800 border border-blue-100' : tab === 'workplan2027' ? 'bg-teal-50 text-teal-800 border border-teal-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
                   {isTabLoading && <Loader2 size={14} className="animate-spin shrink-0" />}
-                  <span>{tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'tabar' ? 'תב"ר' : tab === 'complaints' ? 'פניות ציבור' : tab === 'budget2027' ? 'בניית תקציב 2027' : 'ניהול משתמשים'}</span>
+                  <span>{tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'tabar' ? 'תב"ר' : tab === 'complaints' ? 'פניות ציבור' : tab === 'budget2027' ? 'בניית תקציב 2027' : tab === 'workplan2027' ? 'בניית תכניות עבודה 2027' : 'ניהול משתמשים'}</span>
                 </button>
                );
              })}
@@ -2267,6 +2369,15 @@ const App = () => {
                       <Truck size={18} className={budget2027SubView === 'vehicles' ? 'text-orange-400' : 'text-slate-400'} /> רכבים
                     </button>
                   </>
+                ) : mainTab === 'workplan2027' ? (
+                  <>
+                    <button onClick={() => { setWorkplan2027SubView('intro'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${workplan2027SubView === 'intro' ? 'bg-slate-900 text-white shadow-md border-teal-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <LayoutDashboard size={18} className={workplan2027SubView === 'intro' ? 'text-teal-400' : 'text-slate-400'} /> סקירה כללית
+                    </button>
+                    <button onClick={() => { setWorkplan2027SubView('tasks'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${workplan2027SubView === 'tasks' ? 'bg-slate-900 text-white shadow-md border-teal-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <TableProperties size={18} className={workplan2027SubView === 'tasks' ? 'text-teal-400' : 'text-slate-400'} /> משימות 2027
+                    </button>
+                  </>
                 ) : (
                   <>
                     <button onClick={() => { setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${viewMode === 'dashboard' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
@@ -2298,7 +2409,7 @@ const App = () => {
                   </>
                 )}
               </div>
-              {mainTab !== 'complaints' && mainTab !== 'budget2027' && (
+              {mainTab !== 'complaints' && mainTab !== 'budget2027' && mainTab !== 'workplan2027' && (
               <div className="p-4 space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
                {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
@@ -2390,6 +2501,8 @@ const App = () => {
                   <><MessageSquare className="text-purple-500 hidden sm:block" size={28} />פניות ציבור</>
                 ) : mainTab === 'tabar' ? (
                   <><Wallet className="text-orange-500 hidden sm:block" size={28} />תב"רים</>
+                ) : mainTab === 'workplan2027' ? (
+                  <><Target className="text-teal-500 hidden sm:block" size={28} />בניית תכניות עבודה 2027</>
                 ) : mainTab === 'budget2027' ? (
                   <><FileSpreadsheet className="text-blue-500 hidden sm:block" size={28} />בניית תקציב 2027</>
                 ) : (
@@ -2404,6 +2517,8 @@ const App = () => {
                 {mainTab === 'workplan' && viewMode === 'table' && 'עדכון סטטוסים והערות למשימות שוטפות.'}
                 {mainTab === 'complaints' && 'רישום, מעקב וטיפול בפניות תושבים.'}
                 {mainTab === 'tabar' && 'תקציב בלתי רגיל — מעקב תקציב, יתרות וסטטוסי גבייה.'}
+                {mainTab === 'workplan2027' && workplan2027SubView === 'intro' && 'סקירה כללית ומדידת התקדמות בניית תכנית העבודה לשנת 2027.'}
+                {mainTab === 'workplan2027' && workplan2027SubView === 'tasks' && 'בניית משימות ויעדים לשנת 2027.'}
                 {mainTab === 'budget2027' && budget2027SubView === 'intro' && 'מסך הסבר ונהלים לבניית תקציב 2027.'}
                 {mainTab === 'budget2027' && budget2027SubView === 'table' && 'הזנת תחזית ביצוע 2026 ובקשות תקציב לשנת 2027.'}
                 {mainTab === 'budget2027' && budget2027SubView === 'rename' && 'הגשת בקשות לשינוי שם סעיף תקציבי.'}
@@ -2412,6 +2527,440 @@ const App = () => {
                 {mainTab === 'budget2027' && budget2027SubView === 'vehicles' && 'אישור ועדכון רשימת הרכבים לצורך בניית תקציב 2027.'}
               </p>
             </div>
+
+            {/* --------- WORKPLAN 2027 TAB --------- */}
+            {mainTab === 'workplan2027' && (() => {
+              const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+              const isAdminOrGaz = currentUser?.role === 'ADMIN' || isBudgetManager;
+              const myTasks = workplan2027Tasks.filter(t => {
+                if (isAdminOrGaz) return true;
+                return myTargets.some(tg => sameKey(tg, t.wing) || sameKey(tg, t.dept));
+              });
+              const filteredTasks = myTasks.filter(t => {
+                if (wp2027FilterDept !== 'הכל' && !sameKey(t.dept, wp2027FilterDept)) return false;
+                if (wp2027Search) { const q = cleanStr(wp2027Search).toLowerCase(); if (!cleanStr(t.activity).toLowerCase().includes(q) && !cleanStr(t.task).toLowerCase().includes(q) && !cleanStr(t.dept).toLowerCase().includes(q)) return false; }
+                return true;
+              });
+              const prevYearAvailable = workPlans.filter(t => {
+                if (isAdminOrGaz || myTargets.length === 0) return true;
+                return myTargets.some(tg => sameKey(tg, t.wing) || sameKey(tg, t.dept));
+              });
+              const prevYearQ = cleanStr(prevYearSearch).toLowerCase();
+              const prevYearFiltered = prevYearAvailable.filter(t => {
+                if (wp2027PrevWing !== 'הכל' && !sameKey(t.wing, wp2027PrevWing)) return false;
+                if (wp2027PrevDept !== 'הכל' && !sameKey(t.dept, wp2027PrevDept)) return false;
+                if (prevYearQ && !cleanStr(t.activity).toLowerCase().includes(prevYearQ) && !cleanStr(t.task).toLowerCase().includes(prevYearQ) && !cleanStr(t.dept).toLowerCase().includes(prevYearQ)) return false;
+                return true;
+              });
+
+              const handleBudgetSearch = (q) => {
+                setTaskForm(p => ({ ...p, budgetItemQuery: q, budgetItemId: '', budgetItemName: '', budgetItemType: '' }));
+                if (!q || q.length < 2) { setBudgetItemSuggestions([]); return; }
+                const lq = q.toLowerCase();
+                const bMatches = fullBudgetData.filter(r => String(r.id).includes(lq) || cleanStr(r.name).toLowerCase().includes(lq)).slice(0, 8).map(r => ({ id: String(r.id), name: r.name, type: 'budget', label: `${r.id} — ${r.name}` }));
+                const tMatches = tabarData.filter(r => String(r.id).toLowerCase().includes(lq) || cleanStr(r.name).toLowerCase().includes(lq)).slice(0, 4).map(r => ({ id: String(r.id), name: r.name, type: 'tabar', label: `תב"ר ${r.id} — ${r.name}` }));
+                setBudgetItemSuggestions([...bMatches, ...tMatches]);
+              };
+              const emptyTaskRow = { task: '', deadline: '', successTarget: '', estimatedValue: '', budgetItemId: '', budgetItemName: '', budgetItemType: '', budgetItemQuery: '' };
+              const openAddModal = (prefill = null) => {
+                const defWing = (!isAdminOrGaz && myTargets.length > 0 && currentUser?.role === 'WING') ? myTargets[0] : '';
+                const defDept = (!isAdminOrGaz && myTargets.length > 0 && currentUser?.role === 'DEPT') ? myTargets[0] : '';
+                if (prefill) {
+                  setTaskForm({ wing: prefill.wing || defWing, dept: prefill.dept || defDept, activity: prefill.activity || '', task: '', deadline: '', goalLink: prefill.goal_link || '', successTarget: '', estimatedValue: '', budgetItemId: '', budgetItemName: '', budgetItemType: '', budgetItemQuery: '', sourcePrevYear: true, prevYearId: prefill.id || '' });
+                  setTaskRows([{ ...emptyTaskRow, task: prefill.task || '', successTarget: prefill.success_target || '' }]);
+                } else {
+                  setTaskForm({ wing: defWing, dept: defDept, activity: '', task: '', deadline: '', goalLink: '', successTarget: '', estimatedValue: '', budgetItemId: '', budgetItemName: '', budgetItemType: '', budgetItemQuery: '', sourcePrevYear: false, prevYearId: '' });
+                  setTaskRows([{ ...emptyTaskRow }]);
+                }
+                setBudgetItemSuggestions([]);
+                setTaskEditModal('new');
+              };
+              const handleSaveTask = async () => {
+                if (isSavingTask) return;
+                if (taskEditModal === 'new') {
+                  if (!taskForm.activity || !taskForm.dept) { alert('יש למלא: תיאור פעילות ומחלקה'); return; }
+                  for (let i = 0; i < taskRows.length; i++) {
+                    const row = taskRows[i];
+                    if (!row.task || !row.deadline) { alert(`משימה ${i + 1}: יש למלא תיאור משימה ותאריך יעד`); return; }
+                    if (!row.deadline.startsWith('2027-')) { alert(`משימה ${i + 1}: תאריך היעד חייב להיות בשנת 2027`); return; }
+                  }
+                  setIsSavingTask(true);
+                  try {
+                    for (const row of taskRows) {
+                      await saveWorkplan2027Task({ ...taskForm, ...row, id: '' });
+                    }
+                    setTaskEditModal(null); setBudgetItemSuggestions([]);
+                  } finally {
+                    setIsSavingTask(false);
+                  }
+                } else {
+                  if (!taskForm.activity || !taskForm.task || !taskForm.deadline || !taskForm.dept) { alert('יש למלא: פעילות, משימה, מחלקה ותאריך יעד'); return; }
+                  if (!taskForm.deadline.startsWith('2027-')) { alert('תאריך היעד חייב להיות בשנת 2027'); return; }
+                  setIsSavingTask(true);
+                  try {
+                    const ok = await saveWorkplan2027Task({ ...taskForm, id: taskEditModal });
+                    if (ok) { setTaskEditModal(null); setBudgetItemSuggestions([]); }
+                  } finally {
+                    setIsSavingTask(false);
+                  }
+                }
+              };
+
+              const mkRing = (pct) => {
+                const R = 19; const C = 2 * Math.PI * R; const off = C - (pct / 100) * C;
+                const color = pct >= 80 ? '#10b981' : pct >= 40 ? '#f59e0b' : '#94a3b8';
+                return (<svg width="54" height="54" viewBox="0 0 44 44" className="shrink-0"><circle cx="22" cy="22" r={R} fill="none" stroke="#e2e8f0" strokeWidth="4" /><circle cx="22" cy="22" r={R} fill="none" stroke={color} strokeWidth="4" strokeDasharray={C} strokeDashoffset={off} strokeLinecap="round" transform="rotate(-90 22 22)" /><text x="22" y="26" textAnchor="middle" fontSize="9" fontWeight="bold" fill={color}>{Math.round(pct)}%</text></svg>);
+              };
+
+              const subTabs = [{ id: 'intro', label: 'סקירה כללית' }, { id: 'tasks', label: 'משימות 2027' }];
+
+              return (
+                <div>
+                  {/* Sub-tab nav */}
+                  <div className="flex gap-1 mb-6 bg-slate-100/70 p-1 rounded-xl border border-slate-200/50 w-fit">
+                    {subTabs.map(st => (
+                      <button key={st.id} onClick={() => setWorkplan2027SubView(st.id)} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${workplan2027SubView === st.id ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{st.label}</button>
+                    ))}
+                  </div>
+
+                  {/* INTRO */}
+                  {workplan2027SubView === 'intro' && (() => {
+                    const totalByScope = myTasks.length;
+                    const prevCount = prevYearAvailable.length;
+                    const pct = prevCount > 0 ? Math.min(100, Math.round((totalByScope / prevCount) * 100)) : (totalByScope > 0 ? 100 : 0);
+                    const scopeDepts = Array.from(new Set(myTasks.map(t => t.dept).filter(Boolean))).slice(0, 2);
+                    return (
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center gap-4">
+                            {mkRing(pct)}
+                            <div><div className="text-2xl font-black text-slate-800">{totalByScope}</div><div className="text-xs font-bold text-slate-500">משימות הוגדרו</div><div className="text-[10px] text-slate-400 mt-0.5">מתוך {prevCount} בשנה הקודמת</div></div>
+                          </div>
+                          {scopeDepts.map(dept => {
+                            const cnt = workplan2027Tasks.filter(t => sameKey(t.dept, dept)).length;
+                            const prevCnt = prevYearAvailable.filter(t => sameKey(t.dept, dept)).length;
+                            const p = prevCnt > 0 ? Math.min(100, Math.round((cnt / prevCnt) * 100)) : (cnt > 0 ? 100 : 0);
+                            return (<div key={dept} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center gap-4">{mkRing(p)}<div><div className="text-lg font-black text-slate-800">{cnt}</div><div className="text-xs font-bold text-slate-500 truncate max-w-[120px]">{dept}</div><div className="text-[10px] text-slate-400 mt-0.5">מתוך {prevCnt} בשנה קודמת</div></div></div>);
+                          })}
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
+                          <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4">הוראות למילוי תכנית העבודה 2027</h3>
+                          <div className="space-y-4 text-sm text-slate-700 leading-relaxed">
+                            <div className="border-r-4 border-teal-400 pr-4"><div className="font-bold text-teal-700 mb-1">שלב 1 — מעבר על משימות קיימות</div><p>עברו על תכנית העבודה הקיימת ומשכו משימות רלוונטיות לשנת 2027. ניתן למשוך כל משימה ולעדכן את תאריך היעד.</p></div>
+                            <div className="border-r-4 border-blue-400 pr-4"><div className="font-bold text-blue-700 mb-1">שלב 2 — הוספת משימות חדשות</div><p>הוסיפו משימות חדשות שלא הופיעו בשנה הקודמת. בלחיצה אחת על "הוסף משימה" ניתן להזין פעילות אחת עם <strong>מספר תיאורי משימה</strong> — כל תיאור משימה מקבל לו"ז, יעד הצלחה, סעיף תקציבי וערך כספי משלו. בלחיצת "שמור" כל תיאורי המשימה נשמרים כשורות נפרדות.</p></div>
+                            <div className="border-r-4 border-amber-400 pr-4"><div className="font-bold text-amber-700 mb-1">שלב 3 — שיוך תקציבי</div><p>לכל משימה הכרוכה בתקציב יש לשייך סעיף תקציבי אמיתי מתוך רשימת הסעיפים או מספר תב"ר ולציין ערך כספי מוערך.</p></div>
+                            <div className="bg-red-50 border border-red-200 rounded-xl p-4"><div className="font-black text-red-700 mb-2">חובה לשים לב:</div><ul className="space-y-1 text-red-700 text-xs list-disc pr-4"><li>תאריך יעד הוא שדה חובה לכל משימה</li><li>סעיף תקציבי חייב להיות מתוך הרשימה האמיתית — לא ניתן להזין מספר שרירותי</li><li>משימה שנמשכה מהשנה הקודמת חייבת לקבל תאריך יעד חדש</li></ul></div>
+                          </div>
+                          <button onClick={() => setWorkplan2027SubView('tasks')} className="mt-5 bg-teal-700 hover:bg-teal-800 text-white px-6 py-3 rounded-xl font-bold text-sm transition-colors shadow-sm">עבור לבניית משימות ←</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* TASKS */}
+                  {workplan2027SubView === 'tasks' && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap gap-2 items-center">
+                        <input type="text" placeholder="חיפוש משימה / פעילות..." value={wp2027Search} onChange={e => setWp2027Search(e.target.value)} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20 w-52" />
+                        <select value={wp2027FilterDept} onChange={e => setWp2027FilterDept(e.target.value)} className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20">
+                          <option value="הכל">כל המחלקות</option>
+                          {budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <div className="flex gap-2 mr-auto">
+                          <button onClick={() => { setPrevYearSearch(''); setShowPrevYearModal(true); }} className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors border border-slate-200">↩ משוך ממכנית עבודה קיימת</button>
+                          <button onClick={() => openAddModal()} className="flex items-center gap-1.5 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">+ הוסף משימה</button>
+                        </div>
+                      </div>
+                      <div className="text-xs font-bold text-slate-400">{filteredTasks.length} משימות{wp2027FilterDept !== 'הכל' ? ` — ${wp2027FilterDept}` : ''}</div>
+                      {workplan2027Loading ? (
+                        <div className="flex justify-center py-12"><Loader2 className="animate-spin text-slate-300" size={32} /></div>
+                      ) : filteredTasks.length === 0 ? (
+                        <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center"><div className="text-slate-300 text-4xl mb-3">📋</div><div className="font-bold text-slate-500 mb-1">אין משימות</div><div className="text-xs text-slate-400">הוסיפו משימות חדשות או משכו ממכנית העבודה הקיימת</div></div>
+                      ) : (
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full">
+                              <thead><tr className="border-b border-slate-100 bg-slate-50/70">
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">מס"ד</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">אגף</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">מחלקה</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">קישור למטרת המועצה</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">תיאור פעילות</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">תיאור משימה</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">לו"ז לסיום</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">יעד הצלחה</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">סעיף תקציבי/תב"ר</th>
+                                <th className="py-3 px-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-wider">אומדן עלות</th>
+                                <th className="py-3 px-3"></th>
+                              </tr></thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {filteredTasks.map((t, idx) => (
+                                  <tr key={t.id} className="hover:bg-slate-50/50 transition-colors group">
+                                    <td className="py-3 px-3 text-[10px] font-mono text-slate-400 whitespace-nowrap">{idx + 1}{t.sourcePrevYear && <span className="text-[8px] bg-teal-50 text-teal-600 px-1 rounded mr-1">↩</span>}</td>
+                                    <td className="py-3 px-3 text-xs font-bold text-slate-500 whitespace-nowrap">{t.wing || <span className="text-slate-300">—</span>}</td>
+                                    <td className="py-3 px-3 text-xs font-bold text-slate-500 whitespace-nowrap">{t.dept}</td>
+                                    <td className="py-3 px-3 text-xs text-slate-500 max-w-[140px]"><div className="truncate">{t.goalLink || <span className="text-slate-300">—</span>}</div></td>
+                                    <td className="py-3 px-3 text-xs font-bold text-slate-700 max-w-[160px]"><div className="truncate">{t.activity}</div></td>
+                                    <td className="py-3 px-3 text-xs text-slate-600 max-w-[180px]"><div className="line-clamp-2">{t.task}</div></td>
+                                    <td className="py-3 px-3 text-xs font-bold text-slate-600 whitespace-nowrap">{t.deadline ? formatDate(t.deadline) : <span className="text-red-400">חסר</span>}</td>
+                                    <td className="py-3 px-3 text-xs text-slate-500 max-w-[140px]"><div className="line-clamp-2">{t.successTarget || <span className="text-slate-300">—</span>}</div></td>
+                                    <td className="py-3 px-3">
+                                      {t.budgetItemId ? (<div><div className="text-[10px] font-mono text-slate-500 whitespace-nowrap">{t.budgetItemId}{t.budgetItemType === 'tabar' && <span className="text-[8px] bg-orange-50 text-orange-600 px-1 rounded mr-1">תב"ר</span>}</div><div className="text-[10px] text-slate-400 truncate max-w-[100px]">{t.budgetItemName}</div></div>) : <span className="text-slate-300 text-xs">—</span>}
+                                    </td>
+                                    <td className="py-3 px-3 text-xs font-bold text-slate-600 tabular-nums whitespace-nowrap">{t.estimatedValue ? `₪${Number(t.estimatedValue).toLocaleString()}` : <span className="text-slate-300">—</span>}</td>
+                                    <td className="py-3 px-3">
+                                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => { setTaskForm({ wing: t.wing||'', dept: t.dept||'', activity: t.activity||'', task: t.task||'', deadline: t.deadline||'', goalLink: t.goalLink||'', successTarget: t.successTarget||'', estimatedValue: t.estimatedValue||'', budgetItemId: t.budgetItemId||'', budgetItemName: t.budgetItemName||'', budgetItemType: t.budgetItemType||'', budgetItemQuery: t.budgetItemId ? `${t.budgetItemId}${t.budgetItemName?' — '+t.budgetItemName:''}` : '', sourcePrevYear: !!t.sourcePrevYear, prevYearId: t.prevYearId||'' }); setBudgetItemSuggestions([]); setTaskEditModal(t.id); }} className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg font-bold text-slate-600 transition-colors">ערוך</button>
+                                        <button onClick={() => deleteWorkplan2027Task(t.id)} className="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 rounded-lg font-bold text-red-600 transition-colors">מחק</button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PREV YEAR MODAL */}
+                  {showPrevYearModal && (
+                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowPrevYearModal(false)}>
+                      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100"><h3 className="text-base font-black text-slate-800">משיכה ממכנית העבודה הקיימת</h3><button onClick={() => setShowPrevYearModal(false)} className="text-slate-400 hover:text-slate-600 text-xl font-bold">×</button></div>
+                        <div className="px-4 py-3 border-b border-slate-50 space-y-2">
+                          <input type="text" placeholder="חיפוש פעילות / משימה / מחלקה..." value={prevYearSearch} onChange={e => setPrevYearSearch(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20" autoFocus />
+                          <div className="flex gap-2">
+                            <select value={wp2027PrevWing} onChange={e => { setWp2027PrevWing(e.target.value); setWp2027PrevDept('הכל'); }} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20">
+                              <option value="הכל">כל האגפים</option>
+                              {Array.from(new Set(prevYearAvailable.map(t => t.wing).filter(Boolean))).sort().map(w => <option key={w} value={w}>{w}</option>)}
+                            </select>
+                            <select value={wp2027PrevDept} onChange={e => setWp2027PrevDept(e.target.value)} className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20">
+                              <option value="הכל">כל המחלקות</option>
+                              {Array.from(new Set(prevYearAvailable.filter(t => wp2027PrevWing === 'הכל' || sameKey(t.wing, wp2027PrevWing)).map(t => t.dept).filter(Boolean))).sort().map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
+                          {prevYearFiltered.length === 0 ? (<div className="p-8 text-center text-slate-400 text-sm">לא נמצאו משימות</div>) : prevYearFiltered.map(t => (
+                            <button key={t.id} onClick={() => { setShowPrevYearModal(false); openAddModal(t); }} className="w-full text-right px-5 py-3.5 hover:bg-teal-50 transition-colors group">
+                              <div className="font-bold text-sm text-slate-700 group-hover:text-teal-800">{t.activity}</div>
+                              <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">{t.task}</div>
+                              <div className="text-[10px] text-slate-400 mt-0.5">{t.dept}{t.wing ? ` — ${t.wing}` : ''}</div>
+                            </button>
+                          ))}
+                        </div>
+                        <div className="px-4 py-3 border-t border-slate-100 text-[10px] text-slate-400 text-center">{prevYearFiltered.length} משימות | לחץ על משימה כדי לייבא אותה</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ADD/EDIT TASK MODAL */}
+                  {taskEditModal !== null && (
+                    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => { setTaskEditModal(null); setBudgetItemSuggestions([]); }}>
+                      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100"><h3 className="text-base font-black text-slate-800">{taskEditModal === 'new' ? (taskForm.sourcePrevYear ? 'ייבוא משימה מהשנה הקודמת' : 'הוספת משימה חדשה') : 'עריכת משימה'}</h3><button onClick={() => { setTaskEditModal(null); setBudgetItemSuggestions([]); }} className="text-slate-400 hover:text-slate-600 text-xl font-bold">×</button></div>
+                        {taskForm.sourcePrevYear && <div className="mx-6 mt-4 bg-teal-50 border border-teal-200 rounded-xl px-4 py-2 text-xs font-bold text-teal-700">↩ ייבוא ממכנית עבודה קיימת — בדקו ועדכנו לפי הצורך</div>}
+                        {(() => {
+                          const wingDeptsModal = taskForm.wing
+                            ? Array.from(new Set(fullBudgetData.filter(r => sameKey(r.wing, taskForm.wing)).map(r => r.dept).filter(Boolean))).sort()
+                            : budgetDeptOptions;
+                          const goalOptions = Array.from(new Set(workPlans.map(t => t.goal_link).filter(Boolean))).sort();
+                          const sel = `px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20`;
+                          const inp = `px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-teal-500/20`;
+                          const updateRow = (idx, patch) => setTaskRows(rows => rows.map((r, i) => i === idx ? { ...r, ...patch } : r));
+                          const rowBudgetList = (row) => {
+                            const q = cleanStr(row.budgetItemQuery).toLowerCase();
+                            return fullBudgetData.filter(r => {
+                              if (taskForm.wing && !sameKey(r.wing, taskForm.wing)) return false;
+                              if (taskForm.dept && !sameKey(r.dept, taskForm.dept)) return false;
+                              if (q) return String(r.id).includes(q) || cleanStr(r.name).toLowerCase().includes(q);
+                              return true;
+                            }).slice(0, 80);
+                          };
+                          const rowTabarList = (row) => {
+                            const q = cleanStr(row.budgetItemQuery).toLowerCase();
+                            return tabarData.filter(r => !q || String(r.id).toLowerCase().includes(q) || cleanStr(r.name).toLowerCase().includes(q)).slice(0, 80);
+                          };
+                          const clearBudgetItem = (isRow, idx) => isRow ? updateRow(idx, { budgetItemId: '', budgetItemName: '', budgetItemQuery: '', budgetItemType: '' }) : setTaskForm(p => ({ ...p, budgetItemId: '', budgetItemName: '', budgetItemQuery: '', budgetItemType: '' }));
+                          const BudgetItemSection = ({ row, idx, isRow }) => (
+                            <div className="flex flex-col gap-2">
+                              <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">סעיף תקציבי / תב"ר</label>
+                              {row.budgetItemId ? (
+                                <div className="flex items-center justify-between bg-teal-50 border border-teal-200 rounded-xl px-3 py-2">
+                                  <span className="text-xs font-bold text-teal-700">✓ {row.budgetItemId} — {row.budgetItemName}{row.budgetItemType === 'tabar' ? ' (תב"ר)' : ''}</span>
+                                  <button type="button" onClick={() => clearBudgetItem(isRow, idx)} className="text-teal-400 hover:text-teal-600 text-sm font-bold">×</button>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex gap-2">
+                                    {['budget','tabar'].map(t => (
+                                      <button key={t} type="button"
+                                        onClick={() => isRow ? updateRow(idx, { budgetItemType: row.budgetItemType === t ? '' : t, budgetItemId: '', budgetItemName: '', budgetItemQuery: '' }) : setTaskForm(p => ({ ...p, budgetItemType: p.budgetItemType === t ? '' : t, budgetItemId: '', budgetItemName: '', budgetItemQuery: '' }))}
+                                        className={`flex-1 py-2 rounded-xl text-sm font-bold border transition-all ${row.budgetItemType === t ? (t === 'budget' ? 'bg-teal-700 text-white border-teal-700' : 'bg-orange-500 text-white border-orange-500') : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300'}`}>
+                                        {t === 'budget' ? 'סעיף תקציבי' : 'תב"ר'}
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {row.budgetItemType && (
+                                    <div className="flex flex-col gap-1">
+                                      <input type="text" value={row.budgetItemQuery}
+                                        onChange={e => isRow ? updateRow(idx, { budgetItemQuery: e.target.value }) : setTaskForm(p => ({ ...p, budgetItemQuery: e.target.value }))}
+                                        placeholder={row.budgetItemType === 'budget' ? 'חיפוש לפי מספר או שם...' : 'חיפוש תב"ר לפי מספר או שם...'} className={inp} />
+                                      <div className="border border-slate-200 rounded-xl overflow-hidden max-h-36 overflow-y-auto bg-white shadow-sm">
+                                        {(row.budgetItemType === 'budget' ? rowBudgetList(row) : rowTabarList(row)).length === 0
+                                          ? <div className="px-3 py-4 text-xs text-slate-400 text-center">לא נמצאו פריטים</div>
+                                          : (row.budgetItemType === 'budget' ? rowBudgetList(row) : rowTabarList(row)).map(r => (
+                                            <button key={r.id} type="button"
+                                              onClick={() => isRow ? updateRow(idx, { budgetItemId: String(r.id), budgetItemName: r.name, budgetItemQuery: '' }) : setTaskForm(p => ({ ...p, budgetItemId: String(r.id), budgetItemName: r.name, budgetItemQuery: '' }))}
+                                              className={`w-full text-right px-3 py-2 text-xs font-bold border-b border-slate-50 last:border-0 transition-colors hover:bg-teal-50 text-slate-700`}>
+                                              <span className="font-mono text-slate-400 ml-2">{r.id}</span>{r.name}
+                                            </button>
+                                          ))
+                                        }
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          );
+
+                          if (taskEditModal === 'new') {
+                            return (
+                              <div className="p-6 space-y-5">
+                                {/* Shared fields */}
+                                <div className="space-y-4">
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">אגף</label>
+                                      <select value={taskForm.wing} onChange={e => setTaskForm(p => ({ ...p, wing: e.target.value, dept: '' }))} className={sel}>
+                                        <option value="">בחר אגף</option>
+                                        {wingOptions.map(w => <option key={w} value={w}>{w}</option>)}
+                                      </select>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">מחלקה <span className="text-red-500">*</span></label>
+                                      <select value={taskForm.dept} onChange={e => setTaskForm(p => ({ ...p, dept: e.target.value }))} className={sel}>
+                                        <option value="">בחר מחלקה</option>
+                                        {wingDeptsModal.map(d => <option key={d} value={d}>{d}</option>)}
+                                      </select>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">קישור למטרת המועצה</label>
+                                    <select value={taskForm.goalLink} onChange={e => setTaskForm(p => ({ ...p, goalLink: e.target.value }))} className={sel}>
+                                      <option value="">— בחר מטרת המועצה —</option>
+                                      {goalOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                                    </select>
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">תיאור פעילות <span className="text-red-500">*</span></label>
+                                    <input type="text" value={taskForm.activity} onChange={e => setTaskForm(p => ({ ...p, activity: e.target.value }))} placeholder="שם הפעילות הרחבה..." className={inp} />
+                                  </div>
+                                </div>
+                                {/* Task rows */}
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">תיאורי משימה</span>
+                                    <div className="flex-1 border-t border-slate-200" />
+                                    <span className="text-[10px] font-bold text-slate-400 shrink-0">{taskRows.length > 1 ? `${taskRows.length} משימות` : ''}</span>
+                                  </div>
+                                  {taskRows.map((row, idx) => (
+                                    <div key={idx} className="border border-slate-200 rounded-2xl p-4 space-y-3 bg-slate-50/40">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-black text-teal-700">משימה {idx + 1}</span>
+                                        {taskRows.length > 1 && (
+                                          <button type="button" onClick={() => setTaskRows(rows => rows.filter((_, i) => i !== idx))} className="text-[10px] px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-bold transition-colors">הסר</button>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">תיאור משימה <span className="text-red-500">*</span></label>
+                                        <textarea value={row.task} onChange={e => updateRow(idx, { task: e.target.value })} placeholder="תיאור המשימה הספציפית..." rows={2} className={`${inp} resize-none w-full`} />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">לו"ז לסיום <span className="text-red-500">*</span>{taskForm.sourcePrevYear && idx === 0 && <span className="text-amber-600 mr-1">(חובה לעדכן)</span>}</label>
+                                        <input type="date" value={row.deadline} min="2027-01-01" max="2027-12-31"
+                                          onChange={e => updateRow(idx, { deadline: e.target.value })}
+                                          className={inp} />
+                                        {row.deadline && !row.deadline.startsWith('2027-') && <p className="text-[10px] text-red-500 font-bold">תאריך היעד חייב להיות בשנת 2027</p>}
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">יעד הצלחה</label>
+                                        <textarea value={row.successTarget} onChange={e => updateRow(idx, { successTarget: e.target.value })} placeholder="כיצד נמדוד הצלחה..." rows={2} className={`${inp} resize-none w-full`} />
+                                      </div>
+                                      <div className="flex flex-col gap-1">
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">ערך כספי מוערך (₪)</label>
+                                        <input type="number" value={row.estimatedValue} onChange={e => updateRow(idx, { estimatedValue: e.target.value })} placeholder="0" className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none`} />
+                                      </div>
+                                      <BudgetItemSection row={row} idx={idx} isRow={true} />
+                                    </div>
+                                  ))}
+                                  <button type="button"
+                                    onClick={() => setTaskRows(rows => [...rows, { ...emptyTaskRow }])}
+                                    className="w-full py-2.5 border-2 border-dashed border-slate-300 hover:border-teal-400 hover:bg-teal-50/30 text-slate-500 hover:text-teal-700 rounded-xl text-sm font-bold transition-all">
+                                    + הוסף תיאור משימה נוסף
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Edit mode — single task
+                          return (
+                            <div className="p-6 space-y-4">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">אגף</label>
+                                  <select value={taskForm.wing} onChange={e => setTaskForm(p => ({ ...p, wing: e.target.value, dept: '' }))} className={sel}>
+                                    <option value="">בחר אגף</option>
+                                    {wingOptions.map(w => <option key={w} value={w}>{w}</option>)}
+                                  </select>
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">מחלקה <span className="text-red-500">*</span></label>
+                                  <select value={taskForm.dept} onChange={e => setTaskForm(p => ({ ...p, dept: e.target.value }))} className={sel}>
+                                    <option value="">בחר מחלקה</option>
+                                    {wingDeptsModal.map(d => <option key={d} value={d}>{d}</option>)}
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">קישור למטרת המועצה</label>
+                                <select value={taskForm.goalLink} onChange={e => setTaskForm(p => ({ ...p, goalLink: e.target.value }))} className={sel}>
+                                  <option value="">— בחר מטרת המועצה —</option>
+                                  {goalOptions.map(g => <option key={g} value={g}>{g}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">תיאור פעילות <span className="text-red-500">*</span></label><input type="text" value={taskForm.activity} onChange={e => setTaskForm(p => ({ ...p, activity: e.target.value }))} placeholder="שם הפעילות הרחבה..." className={inp} /></div>
+                              <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">תיאור משימה <span className="text-red-500">*</span></label><textarea value={taskForm.task} onChange={e => setTaskForm(p => ({ ...p, task: e.target.value }))} placeholder="תיאור המשימה הספציפית..." rows={3} className={`${inp} resize-none`} /></div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">לו"ז לסיום <span className="text-red-500">*</span></label>
+                                <input type="date" value={taskForm.deadline} min="2027-01-01" max="2027-12-31"
+                                  onChange={e => setTaskForm(p => ({ ...p, deadline: e.target.value }))}
+                                  className={inp} />
+                                {taskForm.deadline && !taskForm.deadline.startsWith('2027-') && <p className="text-[10px] text-red-500 font-bold">תאריך היעד חייב להיות בשנת 2027</p>}
+                              </div>
+                              <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">יעד הצלחה</label><textarea value={taskForm.successTarget} onChange={e => setTaskForm(p => ({ ...p, successTarget: e.target.value }))} placeholder="כיצד נמדוד הצלחה..." rows={2} className={`${inp} resize-none`} /></div>
+                              <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">ערך כספי מוערך (₪)</label><input type="number" value={taskForm.estimatedValue} onChange={e => setTaskForm(p => ({ ...p, estimatedValue: e.target.value }))} placeholder="0" className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none`} /></div>
+                              <BudgetItemSection row={taskForm} idx={-1} isRow={false} />
+                            </div>
+                          );
+                        })()}
+                        <div className="px-6 py-4 border-t border-slate-100 flex gap-3 justify-end">
+                          <button onClick={() => { setTaskEditModal(null); setBudgetItemSuggestions([]); }} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-bold transition-colors">ביטול</button>
+                          <button onClick={handleSaveTask} disabled={isSavingTask} className="px-5 py-2.5 bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition-colors shadow-sm flex items-center gap-2">
+                            {isSavingTask && <Loader2 size={14} className="animate-spin" />}
+                            {taskEditModal === 'new' && taskRows.length > 1 ? `שמור ${taskRows.length} משימות` : 'שמור משימה'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* --------- USERS TAB --------- */}
             {mainTab === 'users' && (
@@ -2460,6 +3009,17 @@ const App = () => {
                     <input type="checkbox" id="newUserVehicleManager" checked={!!userForm.vehicleManager} onChange={(e) => setUserForm(p => ({ ...p, vehicleManager: e.target.checked }))} className="w-4 h-4 accent-orange-600 cursor-pointer" />
                     <label htmlFor="newUserVehicleManager" className="text-sm font-bold text-slate-700 cursor-pointer select-none flex-1">אחראי רכב (רכבים)</label>
                   </div>
+                  {userForm.budgetManager && (
+                    <div className="flex flex-col gap-1.5 p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-xl col-span-1 md:col-span-2 lg:col-span-1">
+                      <label className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">עריכה כמשתמש (לגזבר)</label>
+                      <select value={userForm.userEditScope || ''} onChange={(e) => setUserForm(p => ({ ...p, userEditScope: e.target.value }))} className="py-1.5 px-2 bg-white border border-indigo-200 rounded-lg text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500">
+                        <option value="">ללא</option>
+                        <option value="הכל">הכל</option>
+                        {wingOptions.map(w => <option key={`w_${w}`} value={w}>{w} (אגף)</option>)}
+                        {budgetDeptOptions.map(d => <option key={`d_${d}`} value={d}>{d} (מחלקה)</option>)}
+                      </select>
+                    </div>
+                  )}
               </div>
                   {userForm.role !== 'ADMIN' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
@@ -2559,6 +3119,17 @@ const App = () => {
                                 <span className="text-[10px] font-bold text-orange-600">{u.vehicleManager ? 'אחראי' : ''}</span>
                               </div>
                             </div>
+                            {u.budgetManager && (
+                              <div className="min-w-0">
+                                <span className="text-[9px] font-bold text-indigo-500 block mb-0.5 truncate">עריכה כמשתמש</span>
+                                <select value={u.userEditScope || ''} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, userEditScope: e.target.value } : x))} className="w-full py-1.5 px-1 bg-indigo-50 border border-indigo-200 rounded-md text-xs font-bold outline-none focus:ring-1 focus:ring-indigo-500">
+                                  <option value="">ללא</option>
+                                  <option value="הכל">הכל</option>
+                                  {wingOptions.map(w => <option key={`w_${w}`} value={w}>{w} (אגף)</option>)}
+                                  {budgetDeptOptions.map(d => <option key={`d_${d}`} value={d}>{d} (מח')</option>)}
+                                </select>
+                              </div>
+                            )}
 
                             {!isAd && (
                               <>
@@ -2713,7 +3284,7 @@ const App = () => {
 
                 {viewMode === 'table' && (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between">
                        <div className="flex w-full lg:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all flex-1 lg:max-w-xs">
                           <Search size={16} className="text-slate-400 mr-2 shrink-0" /><input type="text" placeholder="חיפוש סעיף..." value={budgetSearch} onChange={(e) => setBudgetSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
                        </div>
@@ -2733,10 +3304,10 @@ const App = () => {
                       <span className="text-slate-200 hidden sm:inline">|</span>
                       <span className="hidden sm:inline">הכנסות: <span className="text-emerald-600">{formatILS(filteredBudgetData.filter(r => sameKey(r.type,'הכנסה')).reduce((s,r) => s + r.b2026, 0))}</span></span>
                     </div>
-                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-clip">
                       <table className="w-full text-right">
-                        <thead>
-                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                        <thead className="sticky top-0 z-[10]">
+                          <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                             <th className="py-4 px-5 w-24">מזהה</th><th className="py-4 px-5">שם סעיף תקציבי</th><th className="py-4 px-5 w-32">מחלקה</th><th className="py-4 px-5 w-24 text-center">סוג</th>{visibleBudgetColumnDefs.map((col) => <th key={col.key} className="py-4 px-5 w-32 text-left">{col.label}</th>)}
                           </tr>
                         </thead>
@@ -2783,7 +3354,7 @@ const App = () => {
 
                 {viewMode === 'control' && (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between">
                        <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-xl w-full lg:w-auto shrink-0">
                          <button onClick={() => setControlCompareBy('a2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'a2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע</button>
                          <button onClick={() => setControlCompareBy('commitTotal2026')} className={`flex-1 lg:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all ${controlCompareBy === 'commitTotal2026' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>מול ביצוע+שריון</button>
@@ -2797,10 +3368,10 @@ const App = () => {
                          {showOnlyBudgetAlerts && <X size={13} className="mr-1 opacity-80" />}
                        </button>
                     </div>
-                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-clip">
                       <table className="w-full text-right">
-                        <thead>
-                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                        <thead className="sticky top-0 z-[10]">
+                          <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                             <th className="py-4 px-5 w-24">מזהה</th><th className="py-4 px-5">שם סעיף</th><th className="py-4 px-5 w-24 text-center">סוג</th><th className="py-4 px-5 text-left w-32">תקציב 2026</th><th className="py-4 px-5 text-left w-32">{controlCompareBy === 'a2026' ? 'ביצוע' : 'ביצוע+שריון'}</th><th className="py-4 px-5 text-left w-32">יתרה</th>
                           </tr>
                         </thead>
@@ -3034,7 +3605,7 @@ const App = () => {
                   </>
                 ) : (
                   <div className="space-y-4">
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col md:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col md:flex-row gap-3 items-center justify-between">
                        <div className="flex w-full md:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all flex-1 md:max-w-md">
                           <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                           <input type="text" placeholder="חיפוש משימה, פעילות או מזהה..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
@@ -3158,10 +3729,10 @@ const App = () => {
                       </div>
                     )}
 
-                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm pb-32">
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-clip">
                        <table className="w-full text-right relative">
-                          <thead>
-                             <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                          <thead className="sticky top-0 z-[10]">
+                             <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                                 <th className="py-4 px-5 w-16">מזהה</th>
                                 <th className="py-4 px-5 w-40">מחלקה</th>
                                 <th className="py-4 px-5 cursor-pointer hover:bg-slate-100 transition-colors group select-none" onClick={() => setSortOrder(prev => prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'default')}>
@@ -4404,7 +4975,7 @@ const App = () => {
                 {budget2027SubView === 'table' && (
                   <div className="space-y-4">
                     {/* Toolbar */}
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between">
                       <div className="flex w-full lg:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all flex-1 lg:max-w-xs">
                         <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                         <input type="text" placeholder="חיפוש סעיף..." value={budget2027Search} onChange={e => setBudget2027Search(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
@@ -4596,10 +5167,10 @@ const App = () => {
                     })()}
 
                     {/* Desktop table */}
-                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-clip">
                       <table className="w-full text-right">
-                        <thead>
-                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                        <thead className="sticky top-0 z-[10]">
+                          <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
                             <th className="py-4 px-4 w-20">מזהה</th>
                             <th className="py-4 px-4">שם סעיף תקציבי</th>
                             <th className="py-4 px-4 w-32">מחלקה</th>
@@ -4607,10 +5178,10 @@ const App = () => {
                             <th className="py-4 px-4 w-32 text-left">ביצוע 2025</th>
                             <th className="py-4 px-4 w-32 text-left">תקציב 2026</th>
                             <th className="py-4 px-4 w-36 text-left">{execDate ? `ביצוע 2026 — ${execDate}` : 'ביצוע 2026'}</th>
-                            <th className="py-4 px-4 w-36 text-left bg-blue-50/60">תחזית ביצוע 2026</th>
-                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50/70 border-r-2 border-indigo-200">תחזית גזבר</th>}
-                            <th className="py-4 px-4 w-36 text-left bg-blue-50/60">תקציב מבוקש 2027</th>
-                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50/70 border-r-2 border-indigo-200">מבוקש גזבר</th>}
+                            <th className="py-4 px-4 w-36 text-left bg-blue-50">תחזית ביצוע 2026</th>
+                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50 border-r-2 border-indigo-200">תחזית גזבר</th>}
+                            <th className="py-4 px-4 w-36 text-left bg-blue-50">תקציב מבוקש 2027</th>
+                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50 border-r-2 border-indigo-200">מבוקש גזבר</th>}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
@@ -4661,8 +5232,15 @@ const App = () => {
                             const rowPirut = (col) => budget2027Details.filter(r => String(r.id) === String(row.id) && r.column === col);
                             const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
                             const rowInMyTarget = myTargets.length === 0 ? false : (myTargets.some(t => sameKey(t, row.wing) || sameKey(t, row.dept)));
-                            const userColReadOnly = isBudgetManager && !rowInMyTarget;
+                            const userEditScope = currentUser?.userEditScope || '';
+                            const canEditAsUser = isBudgetManager && (userEditScope === 'הכל' || (userEditScope && (sameKey(userEditScope, row.wing) || sameKey(userEditScope, row.dept))));
+                            const userColReadOnly = isBudgetManager && !rowInMyTarget && !canEditAsUser;
                             const isLockedRow = !isBudgetManager && (String(row.id).endsWith('110') || String(row.id) === '1991000310');
+                            const isPrinterRow = PRINTER_ITEM_IDS.has(String(row.id));
+                            const isVehicleRow = vehicleItemIds.has(String(row.id));
+                            const printerLocked = isPrinterRow && !isItManager && !isBudgetManager;
+                            const vehicleLocked = isVehicleRow && !isVehicleManager && !isBudgetManager;
+                            const vPirutDef = isVehicleRow && isVehicleManager ? getVehiclePirut(row.id) : [{ pirut: '', kamut: '1', alut: '', total: 0 }];
                             return (
                               <React.Fragment key={row.id}>
                               <tr className={`hover:bg-slate-50/50 transition-colors group${isBudgetManager && expandedRowId === row.id ? ' bg-indigo-50/30' : ''}`}>
@@ -4676,13 +5254,17 @@ const App = () => {
                                 {/* תחזית ביצוע 2026 — עריכה למשתמש / תצוגה לגזבר שאין לו target על שורה זו */}
                                 {isLockedRow ? (
                                   <td className="py-3 px-4 bg-slate-50/80 text-sm font-bold text-left tabular-nums text-slate-500"><div className="flex items-center gap-1.5"><Lock size={11} className="text-slate-300 shrink-0" />{d.gazburForecast ? formatILS(d.gazburForecast) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : printerLocked ? (
+                                  <td className="py-3 px-4 bg-sky-50/40 text-sm font-bold text-left tabular-nums text-sky-700"><div className="flex items-center gap-1.5"><Lock size={11} className="text-sky-300 shrink-0" />{hasForecast ? formatILS(d.forecast2026) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : vehicleLocked ? (
+                                  <td className="py-3 px-4 bg-orange-50/40 text-sm font-bold text-left tabular-nums text-orange-700"><div className="flex items-center gap-1.5"><Lock size={11} className="text-orange-300 shrink-0" />{hasForecast ? formatILS(d.forecast2026) : <span className="text-slate-300">—</span>}</div></td>
                                 ) : userColReadOnly ? (
                                   <td className="py-3 px-4 bg-blue-50/20 text-sm font-bold text-left tabular-nums text-slate-600">{hasForecast ? formatILS(d.forecast2026) : <span className="text-slate-300">—</span>}</td>
                                 ) : (
-                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDef); }}>
                                     <div className="flex items-center gap-1">
                                       <input key={`${row.id}_forecast_${d.forecast2026}`} type="number" defaultValue={hasForecast ? d.forecast2026 : ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none text-slate-800 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('תחזית').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'תחזית', newValue: val, originalValue: d.forecast2026 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'תחזית', val); } }} />
-                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDef); }}><List size={13} /></button>
                                     </div>
                                   </td>
                                 )}
@@ -4698,13 +5280,17 @@ const App = () => {
                                 {/* תקציב מבוקש 2027 — עריכה למשתמש / תצוגה לגזבר שאין לו target על שורה זו */}
                                 {isLockedRow ? (
                                   <td className="py-3 px-4 bg-slate-50/80 text-sm font-bold text-left tabular-nums text-slate-500"><div className="flex items-center gap-1.5"><Lock size={11} className="text-slate-300 shrink-0" />{d.gazburRequested ? formatILS(d.gazburRequested) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : printerLocked ? (
+                                  <td className="py-3 px-4 bg-sky-50/40 text-sm font-bold text-left tabular-nums text-sky-700"><div className="flex items-center gap-1.5"><Lock size={11} className="text-sky-300 shrink-0" />{hasRequested ? formatILS(d.requested2027) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : vehicleLocked ? (
+                                  <td className="py-3 px-4 bg-orange-50/40 text-sm font-bold text-left tabular-nums text-orange-700"><div className="flex items-center gap-1.5"><Lock size={11} className="text-orange-300 shrink-0" />{hasRequested ? formatILS(d.requested2027) : <span className="text-slate-300">—</span>}</div></td>
                                 ) : userColReadOnly ? (
                                   <td className="py-3 px-4 bg-blue-50/20 text-sm font-bold text-left tabular-nums text-blue-600">{hasRequested ? formatILS(d.requested2027) : <span className="text-slate-300">—</span>}</td>
                                 ) : (
-                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDef); }}>
                                     <div className="flex items-center gap-1">
                                       <input key={`${row.id}_requested_${d.requested2027}`} type="number" defaultValue={hasRequested ? d.requested2027 : ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none text-blue-700 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('מבוקש').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'מבוקש', newValue: val, originalValue: d.requested2027 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'מבוקש', val); } }} />
-                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDef); }}><List size={13} /></button>
                                     </div>
                                   </td>
                                 )}
@@ -4764,6 +5350,16 @@ const App = () => {
                         const d = budget2027Data[String(row.id)] || {};
                         const rowPirut = (col) => budget2027Details.filter(r => String(r.id) === String(row.id) && r.column === col);
                         const isLockedRow = !isBudgetManager && (String(row.id).endsWith('110') || String(row.id) === '1991000310');
+                        const isPrinterRowM = PRINTER_ITEM_IDS.has(String(row.id));
+                        const isVehicleRowM = vehicleItemIds.has(String(row.id));
+                        const printerLockedM = isPrinterRowM && !isItManager && !isBudgetManager;
+                        const vehicleLockedM = isVehicleRowM && !isVehicleManager && !isBudgetManager;
+                        const vPirutDefM = isVehicleRowM && isVehicleManager ? getVehiclePirut(row.id) : [{ pirut: '', kamut: '1', alut: '', total: 0 }];
+                        const myTargetsM = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                        const rowInMyTargetM = myTargetsM.length === 0 ? false : (myTargetsM.some(t => sameKey(t, row.wing) || sameKey(t, row.dept)));
+                        const userEditScopeM = currentUser?.userEditScope || '';
+                        const canEditAsUserM = isBudgetManager && (userEditScopeM === 'הכל' || (userEditScopeM && (sameKey(userEditScopeM, row.wing) || sameKey(userEditScopeM, row.dept))));
+                        const userColReadOnlyM = isBudgetManager && !rowInMyTargetM && !canEditAsUserM;
                         return (
                           <div key={row.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
                             <div className={`absolute top-0 right-0 w-1 h-full ${sameKey(row.type,'הכנסה') ? 'bg-emerald-400' : 'bg-orange-400'}`} />
@@ -4781,10 +5377,16 @@ const App = () => {
                               <div className="flex flex-col"><span className="text-[9px] uppercase font-bold text-slate-400">ביצוע 2026</span><span className="text-xs font-black text-slate-700 tabular-nums mt-0.5">{formatILS(row.a2026)}</span></div>
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-100'}`}>
-                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : 'text-blue-400'}`}>תחזית ביצוע 2026</span>
+                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : printerLockedM ? 'bg-sky-50 border-sky-200' : vehicleLockedM ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-100'}`}>
+                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : printerLockedM ? 'text-sky-400' : vehicleLockedM ? 'text-orange-400' : 'text-blue-400'}`}>תחזית ביצוע 2026</span>
                                 {isLockedRow ? (
                                   <div className="flex items-center gap-1"><Lock size={10} className="text-slate-300 shrink-0" /><span className="text-xs font-bold text-slate-400 tabular-nums">{d.gazburForecast ? formatILS(d.gazburForecast) : '—'}</span></div>
+                                ) : printerLockedM ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-sky-300 shrink-0" /><span className="text-xs font-bold text-sky-700 tabular-nums">{d.forecast2026 ? formatILS(d.forecast2026) : '—'}</span></div>
+                                ) : vehicleLockedM ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-orange-300 shrink-0" /><span className="text-xs font-bold text-orange-700 tabular-nums">{d.forecast2026 ? formatILS(d.forecast2026) : '—'}</span></div>
+                                ) : userColReadOnlyM ? (
+                                  <span className="text-xs font-bold text-slate-600 tabular-nums">{d.forecast2026 ? formatILS(d.forecast2026) : '—'}</span>
                                 ) : (
                                   <div className="flex items-center gap-1">
                                     <input
@@ -4795,14 +5397,20 @@ const App = () => {
                                       className="w-full text-xs font-black text-blue-700 tabular-nums bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-none placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                                       onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('תחזית').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'תחזית', newValue: val, originalValue: d.forecast2026 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'תחזית', val); } }}
                                     />
-                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={12} /></button>
+                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDefM); }}><List size={12} /></button>
                                   </div>
                                 )}
                               </div>
-                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-100'}`}>
-                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : 'text-blue-400'}`}>תקציב מבוקש 2027</span>
+                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : printerLockedM ? 'bg-sky-50 border-sky-200' : vehicleLockedM ? 'bg-orange-50 border-orange-200' : 'bg-blue-50 border-blue-100'}`}>
+                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : printerLockedM ? 'text-sky-400' : vehicleLockedM ? 'text-orange-400' : 'text-blue-400'}`}>תקציב מבוקש 2027</span>
                                 {isLockedRow ? (
                                   <div className="flex items-center gap-1"><Lock size={10} className="text-slate-300 shrink-0" /><span className="text-xs font-bold text-slate-400 tabular-nums">{d.gazburRequested ? formatILS(d.gazburRequested) : '—'}</span></div>
+                                ) : printerLockedM ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-sky-300 shrink-0" /><span className="text-xs font-bold text-sky-700 tabular-nums">{d.requested2027 ? formatILS(d.requested2027) : '—'}</span></div>
+                                ) : vehicleLockedM ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-orange-300 shrink-0" /><span className="text-xs font-bold text-orange-700 tabular-nums">{d.requested2027 ? formatILS(d.requested2027) : '—'}</span></div>
+                                ) : userColReadOnlyM ? (
+                                  <span className="text-xs font-bold text-blue-600 tabular-nums">{d.requested2027 ? formatILS(d.requested2027) : '—'}</span>
                                 ) : (
                                   <div className="flex items-center gap-1">
                                     <input
@@ -4813,7 +5421,7 @@ const App = () => {
                                       className="w-full text-xs font-black text-blue-700 tabular-nums bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-none placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                                       onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('מבוקש').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'מבוקש', newValue: val, originalValue: d.requested2027 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'מבוקש', val); } }}
                                     />
-                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={12} /></button>
+                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : vPirutDefM); }}><List size={12} /></button>
                                   </div>
                                 )}
                               </div>
@@ -4843,7 +5451,7 @@ const App = () => {
                   return (
                     <div className="space-y-4">
                       {/* Toolbar */}
-                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-0 z-[200]">
                         <div className="flex w-full items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 transition-all flex-1 lg:max-w-xs">
                           <Search size={16} className="text-slate-400 mr-2 shrink-0" />
                           <input type="text" placeholder="חיפוש סעיף..." value={nameChangeSearch} onChange={e => setNameChangeSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
@@ -4964,7 +5572,7 @@ const App = () => {
                   return (
                   <div className="space-y-4">
                     {/* Toolbar */}
-                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex items-center gap-3 sticky top-20 z-[200]">
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex items-center gap-3 sticky top-0 z-[200]">
                       <span className="text-xs font-bold text-slate-400 ml-auto">{visibleNewItems.filter(r => r.status !== 'אושר').length} בקשות</span>
                       {newItemsLoading && <Loader2 size={14} className="animate-spin text-emerald-500" />}
                       <button onClick={loadNewItemRequests} className="text-slate-400 hover:text-emerald-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
@@ -5310,7 +5918,7 @@ const App = () => {
                   return (
                     <div className="space-y-4">
                       {/* Toolbar */}
-                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-0 z-[200]">
                         <div className="relative flex-1 w-full lg:w-auto">
                           <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
                           <input value={printerSearch} onChange={e => setPrinterSearch(e.target.value)} placeholder="חיפוש..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-violet-300 focus:bg-white rounded-xl focus:outline-none transition-all" />
@@ -5727,7 +6335,7 @@ const App = () => {
                   // ---- תצוגה רגילה למנהל מחלקה/אגף ----
                   return (
                     <div className="space-y-4">
-                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-0 z-[200]">
                         <div className="relative flex-1 w-full lg:w-auto">
                           <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
                           <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)} placeholder="חיפוש הנהג, סוג רכב, מחלקה..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-orange-300 focus:bg-white rounded-xl focus:outline-none transition-all" />

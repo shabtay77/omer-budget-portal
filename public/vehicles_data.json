@@ -694,5 +694,29 @@
     "test": "09/11/2026",
     "year": "2025",
     "budgetItem": "1611100537"
+  },
+  {
+    "id": 58,
+    "license": "",
+    "category": "רכבי ליסינג",
+    "vehicleType": "צרי אריזו",
+    "wing": "חינוך",
+    "dept": "מקיף עומר",
+    "driver": "עמליה דבש",
+    "test": "",
+    "year": "",
+    "budgetItem": "1815700530"
+  },
+  {
+    "id": 59,
+    "license": "",
+    "category": "רכבי ליסינג",
+    "vehicleType": "צרי אריזו",
+    "wing": "שפ\"ה",
+    "dept": "לשכת מנהל אגף שפ\"ה",
+    "driver": "רכב איגום",
+    "test": "",
+    "year": "",
+    "budgetItem": "1715000532"
   }
 ]

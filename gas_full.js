@@ -187,7 +187,8 @@ function getUsersData() {
       complaintsRole: col('complaintsrole') >= 0 ? String(row[col('complaintsrole')] || '') : '',
       budgetManager:  col('budgetmanager')  >= 0 ? normalizeBool(row[col('budgetmanager')])  : false,
       itManager:      col('itmanager')      >= 0 ? normalizeBool(row[col('itmanager')])      : false,
-      vehicleManager: col('vehiclemanager') >= 0 ? normalizeBool(row[col('vehiclemanager')]) : false
+      vehicleManager: col('vehiclemanager') >= 0 ? normalizeBool(row[col('vehiclemanager')]) : false,
+      userEditScope:  col('usereditscope')  >= 0 ? String(row[col('usereditscope')]  || '') : ''
     };
   });
 }
@@ -220,7 +221,8 @@ function loginUser(username, password) {
     q4:             !!user.q4,
     budgetManager:  !!user.budgetManager,
     itManager:      !!user.itManager,
-    vehicleManager: !!user.vehicleManager
+    vehicleManager: !!user.vehicleManager,
+    userEditScope:  user.userEditScope || ''
   }};
 }
 
@@ -249,7 +251,8 @@ function addUser(data) {
     q4:            data.q4 ? 'TRUE' : 'FALSE',
     budgetmanager:  data.budgetManager  ? 'TRUE' : 'FALSE',
     itmanager:      data.itManager      ? 'TRUE' : 'FALSE',
-    vehiclemanager: data.vehicleManager ? 'TRUE' : 'FALSE'
+    vehiclemanager: data.vehicleManager ? 'TRUE' : 'FALSE',
+    usereditscope:  String(data.userEditScope || '')
   };
   headers.forEach(function(h, i) { if (map[h] !== undefined) newRow[i] = map[h]; });
   sheet.appendRow(newRow);
@@ -283,7 +286,8 @@ function updateUser(data) {
     fullname:       String(data.fullName || ''),
     budgetmanager:  data.budgetManager  ? 'TRUE' : 'FALSE',
     itmanager:      data.itManager      ? 'TRUE' : 'FALSE',
-    vehiclemanager: data.vehicleManager ? 'TRUE' : 'FALSE'
+    vehiclemanager: data.vehicleManager ? 'TRUE' : 'FALSE',
+    usereditscope:  String(data.userEditScope || '')
   };
   Object.keys(updateMap).forEach(function(key) {
     var colIdx = headers.indexOf(key);
@@ -1169,6 +1173,107 @@ function saveVehicleManagerCorrection(data) {
   return { success: false, error: 'מזהה לא נמצא: ' + idStr };
 }
 
+// ==================== תכנית עבודה 2027 ====================
+
+function getWorkplan2027Sheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('תכנית עבודה 2027');
+  if (!sheet) {
+    sheet = ss.insertSheet('תכנית עבודה 2027');
+    sheet.appendRow(['id','wing','dept','goalLink','successTarget','activity','task','deadline','estimatedValue','budgetItemId','budgetItemName','budgetItemType','submittedBy','date','sourcePrevYear','prevYearId']);
+    sheet.getRange(1, 1, 1, 16).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+function generateWp2027Id() {
+  var sheet = getWorkplan2027Sheet();
+  var rows = sheet.getDataRange().getValues();
+  var max = 0;
+  for (var i = 1; i < rows.length; i++) {
+    var id = String(rows[i][0]);
+    if (id.indexOf('WP27-') === 0) {
+      var num = parseInt(id.replace('WP27-', ''), 10);
+      if (!isNaN(num) && num > max) max = num;
+    }
+  }
+  var next = max + 1;
+  return 'WP27-' + (next < 10 ? '00' + next : next < 100 ? '0' + next : String(next));
+}
+
+function listWorkplan2027() {
+  var sheet = getWorkplan2027Sheet();
+  var rows = sheet.getDataRange().getValues();
+  var tasks = [];
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r[0]) continue;
+    tasks.push({
+      id:             String(r[0]),
+      wing:           String(r[1] || ''),
+      dept:           String(r[2] || ''),
+      goalLink:       String(r[3] || ''),
+      successTarget:  String(r[4] || ''),
+      activity:       String(r[5] || ''),
+      task:           String(r[6] || ''),
+      deadline:       String(r[7] || ''),
+      estimatedValue: parseFloat(r[8]) || 0,
+      budgetItemId:   String(r[9] || ''),
+      budgetItemName: String(r[10] || ''),
+      budgetItemType: String(r[11] || ''),
+      submittedBy:    String(r[12] || ''),
+      date:           String(r[13] || ''),
+      sourcePrevYear: String(r[14] || '').toUpperCase() === 'TRUE',
+      prevYearId:     String(r[15] || '')
+    });
+  }
+  return { success: true, tasks: tasks };
+}
+
+function saveWorkplan2027Task(data) {
+  var sheet = getWorkplan2027Sheet();
+  var rows = sheet.getDataRange().getValues();
+  var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  var deadline = data.deadline ? String(data.deadline) : '';
+  if (data.id && data.id !== '' && data.id !== 'new') {
+    for (var i = 1; i < rows.length; i++) {
+      if (String(rows[i][0]) === String(data.id)) {
+        sheet.getRange(i + 1, 2).setValue(data.wing || '');
+        sheet.getRange(i + 1, 3).setValue(data.dept || '');
+        sheet.getRange(i + 1, 4).setValue(data.goalLink || '');
+        sheet.getRange(i + 1, 5).setValue(data.successTarget || '');
+        sheet.getRange(i + 1, 6).setValue(data.activity || '');
+        sheet.getRange(i + 1, 7).setValue(data.task || '');
+        sheet.getRange(i + 1, 8).setValue(deadline);
+        sheet.getRange(i + 1, 9).setValue(parseFloat(data.estimatedValue) || 0);
+        sheet.getRange(i + 1, 10).setValue(data.budgetItemId || '');
+        sheet.getRange(i + 1, 11).setValue(data.budgetItemName || '');
+        sheet.getRange(i + 1, 12).setValue(data.budgetItemType || '');
+        sheet.getRange(i + 1, 13).setValue(data.submittedBy || '');
+        return { success: true };
+      }
+    }
+  }
+  var id = generateWp2027Id();
+  sheet.appendRow([id, data.wing||'', data.dept||'', data.goalLink||'', data.successTarget||'',
+    data.activity||'', data.task||'', deadline,
+    parseFloat(data.estimatedValue)||0, data.budgetItemId||'', data.budgetItemName||'', data.budgetItemType||'',
+    data.submittedBy||'', now, data.sourcePrevYear ? 'TRUE' : 'FALSE', data.prevYearId||'']);
+  return { success: true, id: id };
+}
+
+function deleteWorkplan2027Task(data) {
+  var sheet = getWorkplan2027Sheet();
+  var rows = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (String(rows[i][0]) === String(data.id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'לא נמצא: ' + data.id };
+}
+
 function doGet(e) {
   try {
     var action = (e.parameter && e.parameter.action) ? e.parameter.action : '';
@@ -1182,6 +1287,7 @@ function doGet(e) {
     if (action === 'listNewItemRequests')    return jsonResponse(listNewItemRequests());
     if (action === 'listPrinters2027')       return jsonResponse(listPrinters2027());
     if (action === 'listVehicles2027')       return jsonResponse(listVehicles2027());
+    if (action === 'listWorkplan2027')       return jsonResponse(listWorkplan2027());
     return jsonResponse(getWorkplanLiveData());
   } catch(err) {
     return jsonResponse({ success: false, error: err.message });
@@ -1207,6 +1313,8 @@ function doPost(e) {
     if (action === 'saveItCorrection')             return jsonResponse(saveItCorrection(payload));
     if (action === 'saveVehicleConfirmation')      return jsonResponse(saveVehicleConfirmation(payload));
     if (action === 'saveVehicleManagerCorrection') return jsonResponse(saveVehicleManagerCorrection(payload));
+    if (action === 'saveWorkplan2027Task')   return jsonResponse(saveWorkplan2027Task(payload));
+    if (action === 'deleteWorkplan2027Task') return jsonResponse(deleteWorkplan2027Task(payload));
     if (action === 'batchUpdate') {
       var sheet = getWorkplanSheet();
       var data = sheet.getDataRange().getValues();
