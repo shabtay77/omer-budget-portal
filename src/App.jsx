@@ -10,7 +10,7 @@ import {
   HelpCircle, Save, Menu, X, Loader2, MessageSquare, History, MinusCircle,
   Download, ChevronDown, Filter, Search, TrendingUp, TrendingDown,
   Target, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, Upload, FileSpreadsheet, SkipForward, ClipboardList, LogOut,
-  Phone, Plus, ChevronRight, ImagePlus, ExternalLink, UserCheck
+  Phone, Plus, ChevronRight, ChevronUp, ImagePlus, ExternalLink, UserCheck, List, PenLine, CheckCheck, Lock
 } from 'lucide-react';
 
 const SHEETS_CSV_URL =
@@ -279,6 +279,79 @@ const normalizeUser = (u) => {
   return out;
 };
 
+const PirutModal = React.memo(({ modal, initialRows, onClose, onSave }) => {
+  const [rows, setRows] = React.useState(initialRows);
+  const total = rows.reduce((s, r) => s + (parseFloat(r.kamut) || 0) * (parseFloat(r.alut) || 0), 0);
+  if (!modal) return null;
+  return (
+    <div className="fixed inset-0 z-[1400] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div>
+            <h3 className="font-black text-slate-800 text-base">{modal.column === 'תחזית' ? 'תחזית ביצוע 2026' : modal.column === 'מבוקש' ? 'תקציב מבוקש 2027' : modal.column === 'תחזית_גזבר' ? 'תחזית גזבר' : 'מבוקש גזבר'} — פירוט</h3>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">{modal.rowName} — {modal.rowId}</p>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-100 rounded-xl"><X size={18} /></button>
+        </div>
+        <div className="overflow-y-auto flex-1 p-6">
+          <table className="w-full text-right text-sm mb-4">
+            <thead>
+              <tr className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th className="py-3 px-3 text-right rounded-r-xl">פירוט</th>
+                <th className="py-3 px-3 text-left w-24">כמות</th>
+                <th className="py-3 px-3 text-left w-32">
+                  <div>עלות ליח׳</div>
+                  <div className="text-[9px] font-medium text-blue-400 normal-case tracking-normal">כולל מע"מ</div>
+                </th>
+                <th className="py-3 px-3 text-left w-32 rounded-l-xl">סה"כ</th>
+                <th className="py-3 px-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const rowTotal = (parseFloat(row.kamut) || 0) * (parseFloat(row.alut) || 0);
+                return (
+                  <tr key={i} className="border-t border-slate-100 group">
+                    <td className="py-2.5 px-3">
+                      <input value={row.pirut || ''} onChange={e => setRows(prev => prev.map((r, j) => j === i ? { ...r, pirut: e.target.value } : r))} placeholder="תיאור הפריט..." className="w-full bg-transparent outline-none border-b border-transparent focus:border-blue-400 font-medium text-slate-700 text-sm placeholder:text-slate-300" />
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <input type="number" value={row.kamut || ''} onChange={e => { const kamut = e.target.value; setRows(prev => prev.map((r, j) => j === i ? { ...r, kamut, total: (parseFloat(kamut) || 0) * (parseFloat(r.alut) || 0) } : r)); }} placeholder="1" className="w-full bg-transparent outline-none border-b border-transparent focus:border-blue-400 font-bold text-slate-700 text-sm text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <input type="number" value={row.alut || ''} onChange={e => { const alut = e.target.value; setRows(prev => prev.map((r, j) => j === i ? { ...r, alut, total: (parseFloat(alut) || 0) * (parseFloat(r.kamut) || 0) } : r)); }} placeholder="0" className="w-full bg-transparent outline-none border-b border-transparent focus:border-blue-400 font-bold text-slate-700 text-sm text-left tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                    </td>
+                    <td className="py-2.5 px-3 text-left font-black text-slate-800 tabular-nums">{rowTotal ? formatILS(rowTotal) : '—'}</td>
+                    <td className="py-2.5 px-2">
+                      <button onClick={() => setRows(prev => prev.filter((_, j) => j !== i))} className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-all"><X size={14} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-200">
+                <td colSpan={3} className="py-3 px-3 font-black text-slate-500 text-sm">סה"כ</td>
+                <td className="py-3 px-3 font-black text-blue-700 text-base tabular-nums text-left">{formatILS(total)}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+          <button onClick={() => setRows(prev => [...prev, { pirut: '', kamut: '1', alut: '', total: 0 }])} className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-bold text-sm transition-colors">
+            <Plus size={16} /> הוספת שורה
+          </button>
+        </div>
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-between items-center shrink-0">
+          <button onClick={onClose} className="px-5 py-2.5 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors">ביטול</button>
+          <button onClick={() => onSave(rows.filter(r => r.pirut || parseFloat(r.kamut) || parseFloat(r.alut)))} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl font-bold text-sm transition-colors">
+            <Save size={16} /> שמור
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
@@ -341,7 +414,7 @@ const App = () => {
   const [usersList, setUsersList] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   // שים לב שהוספתי את ה-email: ''
-  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '' });
+  const [userForm, setUserForm] = useState({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false });
   const [openStatusMenuId, setOpenStatusMenuId] = useState(null);
 
   // Upload wizard state
@@ -373,9 +446,51 @@ const App = () => {
   const [complaintsSubView, setComplaintsSubView] = useState('dashboard');
   const complaintImageRef = useRef(null);
 
-  const isAharony = currentUser?.user === 'aharony';
-  const canEdit   = currentUser?.permissions !== 'VIEW';
-  const canUpload = !!currentUser?.addUser;
+  // Budget 2027 module
+  const [budget2027SubView, setBudget2027SubView] = useState('intro');
+  const [budget2027Data, setBudget2027Data] = useState({});
+  const [budget2027Details, setBudget2027Details] = useState([]);
+  const [budget2027Loading, setBudget2027Loading] = useState(false);
+  const [budget2027Search, setBudget2027Search] = useState('');
+  const [budget2027FilterDept, setBudget2027FilterDept] = useState('הכל');
+  const [budget2027FilterType, setBudget2027FilterType] = useState('הכל');
+  const [nameChangeData, setNameChangeData] = useState({});
+  const [nameChangeLoading, setNameChangeLoading] = useState(false);
+  const [nameChangeSearch, setNameChangeSearch] = useState('');
+  const [nameChangeDept, setNameChangeDept] = useState('הכל');
+  const [newItemRequests, setNewItemRequests] = useState([]);
+  const [newItemsLoading, setNewItemsLoading] = useState(false);
+  const [showNewItemForm, setShowNewItemForm] = useState(false);
+  const [newItemForm, setNewItemForm] = useState({ wing: '', dept: '', name: '', type: 'הוצאה', requested2027: '', justification: '' });
+  const [approveModal, setApproveModal] = useState(null);
+  const [printersStatic, setPrintersStatic] = useState([]);
+  const [printersConfirmations, setPrintersConfirmations] = useState({});
+  const [printersLoading, setPrintersLoading] = useState(false);
+  const [printerSearch, setPrinterSearch] = useState('');
+  const [printerFilterDept, setPrinterFilterDept] = useState('הכל');
+  const [printerRejectedEdit, setPrinterRejectedEdit] = useState(null);
+  const [printerItView, setPrinterItView] = useState('pending');
+  const [printerItEdit, setPrinterItEdit] = useState(null);
+  const [vehiclesStatic, setVehiclesStatic] = useState([]);
+  const [vehiclesConfirmations, setVehiclesConfirmations] = useState({});
+  const [vehiclesLoading, setVehiclesLoading] = useState(false);
+  const [vehicleSearch, setVehicleSearch] = useState('');
+  const [vehicleFilterDept, setVehicleFilterDept] = useState('הכל');
+  const [vehicleRejectedEdit, setVehicleRejectedEdit] = useState(null);
+  const [vehicleManagerView, setVehicleManagerView] = useState('pending');
+  const [vehicleManagerEdit, setVehicleManagerEdit] = useState(null);
+  const [expandedRowId, setExpandedRowId] = useState(null);
+  const [pirutModal, setPirutModal] = useState(null);
+  const [pirutRows, setPirutRows] = useState([]);
+  const [execDate, setExecDate] = useState('');
+  const [overwriteConfirm, setOverwriteConfirm] = useState(null);
+
+  const isAharony      = currentUser?.user === 'aharony';
+  const canEdit        = currentUser?.permissions !== 'VIEW';
+  const canUpload      = !!currentUser?.addUser;
+  const isBudgetManager  = !!(currentUser?.budgetManager);
+  const isItManager      = !!(currentUser?.itManager);
+  const isVehicleManager = !!(currentUser?.vehicleManager);
   const complaintsRole = (() => {
     const r = currentUser?.complaintsRole || (currentUser?.role === 'ADMIN' ? 'admin' : null);
     return r === 'input' ? 'manager' : r; // backward compat: 'input' → 'manager'
@@ -477,6 +592,44 @@ const App = () => {
     setShowOnlyOverdueTasks(false);
     setFilterStatus(null);
   }, [mainTab]);
+
+  // טעינת בקשות שינוי שם בכניסה ל-subview
+  useEffect(() => {
+    if (budget2027SubView === 'rename' && currentUser && Object.keys(nameChangeData).length === 0) {
+      loadNameChangeRequests();
+    }
+  }, [budget2027SubView, currentUser]);
+
+  // טעינת סעיפים חדשים בכניסה למודול תקציב 2027
+  useEffect(() => {
+    if (mainTab === 'budget2027' && currentUser && newItemRequests.length === 0) {
+      loadNewItemRequests();
+    }
+  }, [mainTab, currentUser]);
+
+  // טעינת נתוני מדפסות
+  useEffect(() => {
+    if (mainTab === 'budget2027' && currentUser) {
+      if (printersStatic.length === 0) {
+        fetch('/printers_data.json').then(r => r.json()).then(d => setPrintersStatic(d)).catch(() => {});
+      }
+      if (Object.keys(printersConfirmations).length === 0) {
+        loadPrintersConfirmations();
+      }
+    }
+  }, [mainTab, currentUser]);
+
+  // טעינת נתוני רכבים
+  useEffect(() => {
+    if (mainTab === 'budget2027' && currentUser) {
+      if (vehiclesStatic.length === 0) {
+        fetch('/vehicles_data.json').then(r => r.json()).then(d => setVehiclesStatic(d)).catch(() => {});
+      }
+      if (Object.keys(vehiclesConfirmations).length === 0) {
+        loadVehiclesConfirmations();
+      }
+    }
+  }, [mainTab, currentUser]);
 
   // ניקוי חיפוש ומיון בעת החלפת טאב או תצוגה
   useEffect(() => {
@@ -727,7 +880,7 @@ const App = () => {
       const data = await res.json();
       if (data.success) {
         await loadUsers();
-        setUserForm({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '' });
+        setUserForm({ username: '', password: '', email: '', role: 'WING', permissions: 'EDIT', addUser: '', target1: '', target2: '', active: 'TRUE', complaintsRole: '', budgetManager: false, itManager: false, vehicleManager: false });
         alert('המשתמש נוסף בהצלחה');
       } else alert(`שגיאה: ${data.error || 'שגיאה כללית'}`);
     } catch (err) { alert(`שגיאה: ${err.message || ''}`); }
@@ -777,6 +930,288 @@ const App = () => {
       else showToast('שגיאה בטעינת תב"רים: ' + (data.error || ''), 'error', 6000);
     } catch (err) { showToast('שגיאה בטעינת תב"רים: ' + err.message, 'error', 6000); }
     finally { setTabarLoading(false); }
+  };
+
+  const loadBudget2027 = async () => {
+    setBudget2027Loading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listBudget2027&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) {
+        const map = {};
+        (data.items || []).forEach(item => {
+          map[String(item.id)] = {
+            forecast2026:    Number(item.forecast2026)    || 0,
+            requested2027:   Number(item.requested2027)   || 0,
+            gazburForecast:  Number(item.gazburForecast)  || 0,
+            gazburRequested: Number(item.gazburRequested) || 0,
+          };
+        });
+        setBudget2027Data(map);
+        setBudget2027Details(data.details || []);
+        if (data.execDate) setExecDate(data.execDate);
+      } else {
+        showToast('שגיאה בטעינת בניית תקציב: ' + (data.error || ''), 'error', 5000);
+      }
+    } catch (err) {
+      showToast('שגיאה בטעינת בניית תקציב: ' + err.message, 'error', 5000);
+    } finally {
+      setBudget2027Loading(false);
+    }
+  };
+
+  const saveDirectValue = async (rowId, column, numValue) => {
+    let num = parseFloat(numValue) || 0;
+    const rowInfo = fullBudgetData.find(r => String(r.id) === String(rowId));
+    const isIncome = rowInfo && sameKey(rowInfo.type, 'הכנסה');
+    if (isIncome && num > 0) { num = -num; showToast('הערך הומר לשלילי (הכנסה)', 'success', 2500); }
+    if (num === (budget2027Data[String(rowId)]?.[column === 'תחזית' ? 'forecast2026' : 'requested2027'] || 0)) return;
+    showToast('שומר...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'savePirut2027', id: String(rowId), column, rows: [], total: num, updatedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('נשמר', 'success');
+        setBudget2027Data(prev => ({
+          ...prev,
+          [String(rowId)]: { ...(prev[String(rowId)] || {}), [column === 'תחזית' ? 'forecast2026' : 'requested2027']: num }
+        }));
+        setBudget2027Details(prev => prev.filter(r => !(String(r.id) === String(rowId) && r.column === column)));
+      } else throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error', 5000); }
+  };
+
+  const saveGazburValue = async (rowId, column, numValue) => {
+    let num = parseFloat(numValue) || 0;
+    const rowInfo = fullBudgetData.find(r => String(r.id) === String(rowId));
+    if (rowInfo && sameKey(rowInfo.type, 'הכנסה') && num > 0) { num = -num; showToast('הערך הומר לשלילי (הכנסה)', 'success', 2500); }
+    const fieldKey = column === 'תחזית_גזבר' ? 'gazburForecast' : 'gazburRequested';
+    if (num === (budget2027Data[String(rowId)]?.[fieldKey] || 0)) return;
+    showToast('שומר...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'savePirut2027', id: String(rowId), column, rows: [], total: num, updatedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('נשמר', 'success');
+        setBudget2027Data(prev => ({ ...prev, [String(rowId)]: { ...(prev[String(rowId)] || {}), [fieldKey]: num } }));
+        setBudget2027Details(prev => prev.filter(r => !(String(r.id) === String(rowId) && r.column === column)));
+      } else throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error', 5000); }
+  };
+
+  const loadNameChangeRequests = async () => {
+    setNameChangeLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listNameChangeRequests&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) {
+        const map = {};
+        (data.items || []).forEach(item => { map[String(item.id)] = item; });
+        setNameChangeData(map);
+      }
+    } catch (e) {} finally { setNameChangeLoading(false); }
+  };
+
+  const saveNameChangeRequest = async (itemId, currentName, requestedName) => {
+    if (!requestedName.trim() || requestedName.trim() === currentName.trim()) return;
+    showToast('שומר...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveNameChangeRequest', id: String(itemId), currentName, requestedName: requestedName.trim(), submittedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const now = new Date().toLocaleDateString('he-IL');
+        setNameChangeData(prev => ({ ...prev, [String(itemId)]: { requestedName: requestedName.trim(), submittedBy: currentUser?.user || '', date: now } }));
+        showToast('הבקשה נשמרה', 'success');
+      } else throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error', 5000); }
+  };
+
+  const loadNewItemRequests = async () => {
+    setNewItemsLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listNewItemRequests&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) setNewItemRequests(data.items || []);
+    } catch (e) {} finally { setNewItemsLoading(false); }
+  };
+
+  const saveNewItemRequest = async () => {
+    const { wing, dept, name, type, requested2027, justification } = newItemForm;
+    if (!wing.trim() || !dept.trim() || !name.trim() || !justification.trim()) {
+      showToast('נא למלא אגף, מחלקה, שם הסעיף והסבר', 'error'); return;
+    }
+    showToast('שומר...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveNewItemRequest', wing: wing.trim(), dept: dept.trim(), name: name.trim(), type: type || 'הוצאה', requested2027: parseFloat(requested2027) || 0, justification: justification.trim(), submittedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewItemRequests(prev => [...prev, data.item]);
+        if (data.item?.requested2027) setBudget2027Data(prev => ({ ...prev, [data.item.tempId]: { requested2027: data.item.requested2027 } }));
+        setShowNewItemForm(false);
+        setNewItemForm({ wing: '', dept: '', name: '', type: 'הוצאה', requested2027: '', justification: '' });
+        showToast('הסעיף החדש נשמר', 'success');
+      } else throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error', 5000); }
+  };
+
+  const approveNewItem = async (tempId, realId) => {
+    if (!realId.trim()) { showToast('נא להזין מזהה אמיתי', 'error'); return; }
+    showToast('שומר...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'approveNewItem', tempId, realId: realId.trim(), approvedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNewItemRequests(prev => prev.map(r => r.tempId === tempId ? { ...r, status: 'אושר', realId: realId.trim() } : r));
+        setApproveModal(null);
+        showToast('הסעיף אושר ומזהה הוקצה', 'success');
+      } else throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה: ' + err.message, 'error', 5000); }
+  };
+
+  const loadPrintersConfirmations = async () => {
+    setPrintersLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listPrinters2027&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) {
+        const map = {};
+        (data.items || []).forEach(item => { map[String(item.id)] = item; });
+        setPrintersConfirmations(map);
+      }
+    } catch (e) {} finally { setPrintersLoading(false); }
+  };
+
+  const savePrinterConfirmation = async (printer, status, note) => {
+    // status: 'confirmed' | 'rejected' | 'reset'
+    const key = String(printer.id ?? printer);
+    const p = typeof printer === 'object' ? printer : {};
+    const isConfirmed = status === 'confirmed';
+    const isRejected = status === 'rejected';
+    setPrintersConfirmations(prev => ({ ...prev, [key]: { ...prev[key], confirmed: isConfirmed, rejected: isRejected, note, submittedBy: currentUser?.user || '', date: new Date().toLocaleDateString('he-IL') } }));
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'savePrinterConfirmation', id: key, confirmed: isConfirmed, rejected: isRejected, note, submittedBy: currentUser?.user || '', wing: p.wing || '', dept: p.dept || '', name: p.name || '', building: p.building || '', type: p.type || '' })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה בשמירה: ' + err.message, 'error', 4000); }
+  };
+
+  const saveItCorrection = async (printerId, correctedName, correctedBuilding, correctedType) => {
+    const key = String(printerId);
+    const now = new Date().toLocaleDateString('he-IL');
+    setPrintersConfirmations(prev => ({
+      ...prev,
+      [key]: { ...prev[key], correctedName, correctedBuilding, correctedType, correctedBy: currentUser?.user || '', correctedDate: now }
+    }));
+    showToast('שומר תיקון...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveItCorrection', id: key, correctedName, correctedBuilding, correctedType, correctedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'שגיאה');
+      showToast('התיקון נשמר', 'success', 2500);
+    } catch (err) { showToast('שגיאה בשמירה: ' + err.message, 'error', 4000); }
+  };
+
+  const loadVehiclesConfirmations = async () => {
+    setVehiclesLoading(true);
+    try {
+      const res = await fetch(`${GAS_SCRIPT_URL}?action=listVehicles2027&t=${Date.now()}`);
+      const data = await res.json();
+      if (data.success) {
+        const map = {};
+        (data.items || []).forEach(item => { map[String(item.id)] = item; });
+        setVehiclesConfirmations(map);
+      }
+    } catch (e) {} finally { setVehiclesLoading(false); }
+  };
+
+  const saveVehicleConfirmation = async (vehicle, status, note) => {
+    const key = String(vehicle.id ?? vehicle);
+    const v = typeof vehicle === 'object' ? vehicle : {};
+    const isConfirmed = status === 'confirmed';
+    const isRejected = status === 'rejected';
+    setVehiclesConfirmations(prev => ({ ...prev, [key]: { ...prev[key], confirmed: isConfirmed, rejected: isRejected, note, submittedBy: currentUser?.user || '', date: new Date().toLocaleDateString('he-IL') } }));
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveVehicleConfirmation', id: key, confirmed: isConfirmed, rejected: isRejected, note, submittedBy: currentUser?.user || '', wing: v.wing || '', dept: v.dept || '', driver: v.driver || '', vehicleType: v.vehicleType || '', category: v.category || '', year: v.year || '', test: v.test || '' })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'שגיאה');
+    } catch (err) { showToast('שגיאה בשמירה: ' + err.message, 'error', 4000); }
+  };
+
+  const saveVehicleManagerCorrection = async (vehicleId, correctedDriver, correctedType) => {
+    const key = String(vehicleId);
+    const now = new Date().toLocaleDateString('he-IL');
+    setVehiclesConfirmations(prev => ({
+      ...prev,
+      [key]: { ...prev[key], correctedDriver, correctedType, correctedBy: currentUser?.user || '', correctedDate: now }
+    }));
+    showToast('שומר תיקון...', 'saving');
+    try {
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'saveVehicleManagerCorrection', id: key, correctedDriver, correctedType, correctedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'שגיאה');
+      showToast('התיקון נשמר', 'success', 2500);
+    } catch (err) { showToast('שגיאה בשמירה: ' + err.message, 'error', 4000); }
+  };
+
+  const savePirut2027 = async (rowId, column, rows) => {
+    showToast('שומר...', 'saving');
+    try {
+      const rowInfo = fullBudgetData.find(r => String(r.id) === String(rowId));
+      const isIncome = rowInfo && sameKey(rowInfo.type, 'הכנסה');
+      let total = rows.reduce((s, r) => s + (parseFloat(r.kamut) || 0) * (parseFloat(r.alut) || 0), 0);
+      if (isIncome && total > 0) { total = -total; showToast('הסכום הומר לשלילי (הכנסה)', 'success', 2500); }
+      const res = await fetch(GAS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'savePirut2027', id: String(rowId), column, rows, total, updatedBy: currentUser?.user || '' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('נשמר בהצלחה', 'success');
+        const fieldKey = column === 'תחזית' ? 'forecast2026' : column === 'מבוקש' ? 'requested2027' : column === 'תחזית_גזבר' ? 'gazburForecast' : 'gazburRequested';
+        setBudget2027Data(prev => ({
+          ...prev,
+          [String(rowId)]: { ...(prev[String(rowId)] || {}), [fieldKey]: total }
+        }));
+        setBudget2027Details(prev => [
+          ...prev.filter(r => !(String(r.id) === String(rowId) && r.column === column)),
+          ...rows.map((r, i) => ({ ...r, id: String(rowId), column, row: i + 1 }))
+        ]);
+        setPirutModal(null);
+      } else {
+        throw new Error(data.error || 'שגיאה כללית');
+      }
+    } catch (err) {
+      showToast('שגיאה בשמירה: ' + err.message, 'error', 5000);
+    }
   };
 
   const uploadComplaintImageFile = async (file) => {
@@ -937,6 +1372,42 @@ const App = () => {
   }, [staticData, executionMap, activeWingId, currentUser]);
 
   const budgetDeptOptions = useMemo(() => Array.from(new Set(fullBudgetData.map((r) => cleanStr(r.dept)).filter(Boolean))).sort(), [fullBudgetData]);
+  const wingOptions = useMemo(() => Array.from(new Set(fullBudgetData.map((r) => cleanStr(r.wing)).filter(Boolean))).sort(), [fullBudgetData]);
+
+  const filteredBudget2027 = useMemo(() => {
+    let data = [...fullBudgetData];
+    if (budget2027FilterDept !== 'הכל') data = data.filter(r => sameKey(r.dept, budget2027FilterDept));
+    if (budget2027FilterType !== 'הכל') data = data.filter(r => sameKey(r.type, budget2027FilterType));
+    if (cleanStr(budget2027Search)) {
+      const q = cleanStr(budget2027Search).toLowerCase();
+      data = data.filter(r => cleanStr(r.name).toLowerCase().includes(q) || String(r.id).includes(q));
+    }
+    const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+    const pending = newItemRequests
+      .filter(d => {
+        // הרשאות: ADMIN וגזבר רואים הכל, שאר המשתמשים רואים לפי target
+        if (currentUser?.role !== 'ADMIN' && !isBudgetManager) {
+          if (myTargets.length > 0 && !myTargets.some(t => sameKey(t, d.wing) || sameKey(t, d.dept))) return false;
+        }
+        // סעיפים שאושרו ונוספו כבר לנתונים הסטטיים — לא נציג כ-DRAFT
+        if (d.status === 'אושר' && d.realId && fullBudgetData.some(r => String(r.id) === String(d.realId))) return false;
+        // סינוני עמודות
+        if (budget2027FilterDept !== 'הכל' && !sameKey(d.dept, budget2027FilterDept)) return false;
+        if (budget2027FilterType !== 'הכל' && !sameKey(d.type || 'הוצאה', budget2027FilterType)) return false;
+        if (cleanStr(budget2027Search)) {
+          const q = cleanStr(budget2027Search).toLowerCase();
+          if (!cleanStr(d.name).toLowerCase().includes(q) && !(d.tempId || '').toLowerCase().includes(q)) return false;
+        }
+        return true;
+      })
+      .map(d => ({
+        id: d.status === 'אושר' && d.realId ? d.realId : d.tempId,
+        name: d.name, wing: d.wing, dept: d.dept,
+        type: d.type || 'הוצאה', b2025: 0, b2026: 0, a2026: 0,
+        commit: 0, commitTotal2026: 0, a2024: 0, isDraft: true, draftData: d,
+      }));
+    return [...data, ...pending];
+  }, [fullBudgetData, budget2027FilterDept, budget2027FilterType, budget2027Search, newItemRequests, currentUser, isBudgetManager]);
 
   const filteredBudgetData = useMemo(() => {
     let data = [...fullBudgetData];
@@ -1698,6 +2169,7 @@ const App = () => {
             <button onClick={async () => { flushSync(() => setMainTab('tabar')); if (tabarData.length === 0) await loadTabar(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'tabar' ? 'bg-white text-orange-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{tabarLoading && <Loader2 size={13} className="animate-spin" />}תב"ר</button>
             {complaintsRole && <button onClick={async () => { flushSync(() => setMainTab('complaints')); if (complaints.length === 0) await loadComplaints(); if (usersList.length === 0) loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'complaints' ? 'bg-white text-purple-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{complaintsLoading && <Loader2 size={13} className="animate-spin" />}פניות ציבור</button>}
             {isAharony && <button onClick={async () => { flushSync(() => setMainTab('users')); if (usersList.length === 0) await loadUsers(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'users' ? 'bg-white text-emerald-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{usersLoading && <Loader2 size={13} className="animate-spin" />}משתמשים</button>}
+            <button onClick={() => { flushSync(() => { setMainTab('budget2027'); setBudget2027SubView('intro'); }); if (Object.keys(budget2027Data).length === 0) loadBudget2027(); }} className={`inline-flex items-center gap-1.5 px-5 py-1.5 rounded-lg text-sm font-bold transition-all duration-200 ${mainTab === 'budget2027' ? 'bg-white text-blue-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>{budget2027Loading && <Loader2 size={13} className="animate-spin" />}בניית תקציב 2027</button>
           </div>
         </div>
         <div className="flex items-center gap-3 sm:gap-4">
@@ -1738,12 +2210,12 @@ const App = () => {
           </div>
           <div className="p-4 border-b border-slate-100 sm:hidden space-y-2 shrink-0">
              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">מודולים</p>
-             {['budget', 'workplan', 'tabar', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : [])].map(tab => {
-               const isTabLoading = (tab === 'tabar' && tabarLoading) || (tab === 'complaints' && complaintsLoading) || (tab === 'users' && usersLoading);
+             {['budget', 'workplan', 'tabar', ...(complaintsRole ? ['complaints'] : []), ...(isAharony ? ['users'] : []), 'budget2027'].map(tab => {
+               const isTabLoading = (tab === 'tabar' && tabarLoading) || (tab === 'complaints' && complaintsLoading) || (tab === 'users' && usersLoading) || (tab === 'budget2027' && budget2027Loading);
                return (
-                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') { if (usersList.length === 0) loadUsers(); } else if (tab === 'complaints') { if (complaints.length === 0) loadComplaints(); if (usersList.length === 0) loadUsers(); } else if (tab === 'tabar') { if (tabarData.length === 0) loadTabar(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-2 text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : tab === 'tabar' ? 'bg-orange-50 text-orange-800 border border-orange-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
+                <button key={tab} onClick={() => { setMainTab(tab); if (tab === 'users') { if (usersList.length === 0) loadUsers(); } else if (tab === 'complaints') { if (complaints.length === 0) loadComplaints(); if (usersList.length === 0) loadUsers(); } else if (tab === 'tabar') { if (tabarData.length === 0) loadTabar(); } else if (tab === 'budget2027') { if (Object.keys(budget2027Data).length === 0) loadBudget2027(); } else setViewMode('dashboard'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-2 text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${mainTab === tab ? (tab === 'complaints' ? 'bg-purple-50 text-purple-800 border border-purple-100' : tab === 'tabar' ? 'bg-orange-50 text-orange-800 border border-orange-100' : tab === 'budget2027' ? 'bg-blue-50 text-blue-800 border border-blue-100' : 'bg-emerald-50 text-emerald-800 border border-emerald-100') : 'text-slate-600 hover:bg-slate-50'}`}>
                   {isTabLoading && <Loader2 size={14} className="animate-spin shrink-0" />}
-                  <span>{tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'tabar' ? 'תב"ר' : tab === 'complaints' ? 'פניות ציבור' : 'ניהול משתמשים'}</span>
+                  <span>{tab === 'budget' ? 'תקציב' : tab === 'workplan' ? 'תכניות עבודה' : tab === 'tabar' ? 'תב"ר' : tab === 'complaints' ? 'פניות ציבור' : tab === 'budget2027' ? 'בניית תקציב 2027' : 'ניהול משתמשים'}</span>
                 </button>
                );
              })}
@@ -1771,6 +2243,28 @@ const App = () => {
                     </button>
                     <button onClick={() => { setTabarSubView('table'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${tabarSubView === 'table' ? 'bg-slate-900 text-white shadow-md border-orange-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
                       <TableProperties size={18} className={tabarSubView === 'table' ? 'text-orange-400' : 'text-slate-400'} /> פירוט תב"רים
+                    </button>
+                  </>
+                ) : mainTab === 'budget2027' ? (
+                  <>
+                    <button onClick={() => { setBudget2027SubView('intro'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'intro' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <LayoutDashboard size={18} className={budget2027SubView === 'intro' ? 'text-blue-400' : 'text-slate-400'} /> מסך ראשי
+                    </button>
+                    <button onClick={() => { setBudget2027SubView('table'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'table' ? 'bg-slate-900 text-white shadow-md border-blue-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <TableProperties size={18} className={budget2027SubView === 'table' ? 'text-blue-400' : 'text-slate-400'} /> בניית סעיפי תקציב 2027
+                    </button>
+                    <button onClick={() => { setBudget2027SubView('rename'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'rename' ? 'bg-slate-900 text-white shadow-md border-amber-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <PenLine size={18} className={budget2027SubView === 'rename' ? 'text-amber-400' : 'text-slate-400'} /> בקשה לשינוי שם סעיף
+                    </button>
+                    <button onClick={() => { setBudget2027SubView('newItems'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'newItems' ? 'bg-slate-900 text-white shadow-md border-emerald-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <Plus size={18} className={budget2027SubView === 'newItems' ? 'text-emerald-400' : 'text-slate-400'} /> סעיפים חדשים
+                      {newItemRequests.filter(r => r.status === 'ממתין').length > 0 && <span className="mr-auto bg-emerald-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">{isBudgetManager ? newItemRequests.filter(r => r.status === 'ממתין').length : newItemRequests.filter(r => r.status === 'ממתין' && ([currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t))).some(t => sameKey(t, r.wing) || sameKey(t, r.dept))).length || undefined}</span>}
+                    </button>
+                    <button onClick={() => { setBudget2027SubView('printers'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'printers' ? 'bg-slate-900 text-white shadow-md border-violet-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <FileSpreadsheet size={18} className={budget2027SubView === 'printers' ? 'text-violet-400' : 'text-slate-400'} /> מדפסות
+                    </button>
+                    <button onClick={() => { setBudget2027SubView('vehicles'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all border-r-4 ${budget2027SubView === 'vehicles' ? 'bg-slate-900 text-white shadow-md border-orange-400' : 'text-slate-600 hover:bg-slate-50 border-transparent'}`}>
+                      <Truck size={18} className={budget2027SubView === 'vehicles' ? 'text-orange-400' : 'text-slate-400'} /> רכבים
                     </button>
                   </>
                 ) : (
@@ -1804,7 +2298,7 @@ const App = () => {
                   </>
                 )}
               </div>
-              {mainTab !== 'complaints' && (
+              {mainTab !== 'complaints' && mainTab !== 'budget2027' && (
               <div className="p-4 space-y-1">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-2">
                {currentUser.role === 'ADMIN' ? 'סינון לפי אגף' : currentUser.role === 'WING' ? 'סינון לפי מחלקה' : 'המחלקה שלי'}
@@ -1896,6 +2390,8 @@ const App = () => {
                   <><MessageSquare className="text-purple-500 hidden sm:block" size={28} />פניות ציבור</>
                 ) : mainTab === 'tabar' ? (
                   <><Wallet className="text-orange-500 hidden sm:block" size={28} />תב"רים</>
+                ) : mainTab === 'budget2027' ? (
+                  <><FileSpreadsheet className="text-blue-500 hidden sm:block" size={28} />בניית תקציב 2027</>
                 ) : (
                   <>{mainTab === 'budget' && <Wallet className="text-emerald-500 hidden sm:block" size={28} />}{mainTab === 'workplan' && <Target className="text-blue-500 hidden sm:block" size={28} />}{scopeTitle}</>
                 )}
@@ -1908,6 +2404,12 @@ const App = () => {
                 {mainTab === 'workplan' && viewMode === 'table' && 'עדכון סטטוסים והערות למשימות שוטפות.'}
                 {mainTab === 'complaints' && 'רישום, מעקב וטיפול בפניות תושבים.'}
                 {mainTab === 'tabar' && 'תקציב בלתי רגיל — מעקב תקציב, יתרות וסטטוסי גבייה.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'intro' && 'מסך הסבר ונהלים לבניית תקציב 2027.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'table' && 'הזנת תחזית ביצוע 2026 ובקשות תקציב לשנת 2027.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'rename' && 'הגשת בקשות לשינוי שם סעיף תקציבי.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'newItems' && 'הגשת בקשות להוספת סעיפי תקציב חדשים לשנת 2027.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'printers' && 'אישור ועדכון רשימת המדפסות לצורך בניית תקציב 2027.'}
+                {mainTab === 'budget2027' && budget2027SubView === 'vehicles' && 'אישור ועדכון רשימת הרכבים לצורך בניית תקציב 2027.'}
               </p>
             </div>
 
@@ -1946,6 +2448,18 @@ const App = () => {
                     <option value="manager">פניות ציבור: ניהול רגיל</option>
                     <option value="admin">פניות ציבור: ניהול מלא</option>
                   </select>
+                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <input type="checkbox" id="newUserBudgetManager" checked={!!userForm.budgetManager} onChange={(e) => setUserForm(p => ({ ...p, budgetManager: e.target.checked }))} className="w-4 h-4 accent-indigo-600 cursor-pointer" />
+                    <label htmlFor="newUserBudgetManager" className="text-sm font-bold text-slate-700 cursor-pointer select-none flex-1">ניהול תקציב (גזבר)</label>
+                  </div>
+                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <input type="checkbox" id="newUserItManager" checked={!!userForm.itManager} onChange={(e) => setUserForm(p => ({ ...p, itManager: e.target.checked }))} className="w-4 h-4 accent-violet-600 cursor-pointer" />
+                    <label htmlFor="newUserItManager" className="text-sm font-bold text-slate-700 cursor-pointer select-none flex-1">אחראי מיחשוב (מדפסות)</label>
+                  </div>
+                  <div className="flex items-center gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                    <input type="checkbox" id="newUserVehicleManager" checked={!!userForm.vehicleManager} onChange={(e) => setUserForm(p => ({ ...p, vehicleManager: e.target.checked }))} className="w-4 h-4 accent-orange-600 cursor-pointer" />
+                    <label htmlFor="newUserVehicleManager" className="text-sm font-bold text-slate-700 cursor-pointer select-none flex-1">אחראי רכב (רכבים)</label>
+                  </div>
               </div>
                   {userForm.role !== 'ADMIN' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-50">
@@ -2023,6 +2537,27 @@ const App = () => {
                                 <option value="manager">ניהול רגיל</option>
                                 <option value="admin">ניהול מלא</option>
                               </select>
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">ניהול תקציב</span>
+                              <div className="flex items-center gap-1.5 py-1.5">
+                                <input type="checkbox" checked={!!u.budgetManager} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, budgetManager: e.target.checked } : x))} className="w-3.5 h-3.5 accent-indigo-600 cursor-pointer" />
+                                <span className="text-[10px] font-bold text-indigo-600">{u.budgetManager ? 'גזבר' : ''}</span>
+                              </div>
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">מיחשוב</span>
+                              <div className="flex items-center gap-1.5 py-1.5">
+                                <input type="checkbox" checked={!!u.itManager} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, itManager: e.target.checked } : x))} className="w-3.5 h-3.5 accent-violet-600 cursor-pointer" />
+                                <span className="text-[10px] font-bold text-violet-600">{u.itManager ? 'אחראי' : ''}</span>
+                              </div>
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-[9px] font-bold text-slate-400 block mb-0.5 truncate">רכב</span>
+                              <div className="flex items-center gap-1.5 py-1.5">
+                                <input type="checkbox" checked={!!u.vehicleManager} onChange={(e) => setUsersList(p => p.map(x => x.id === u.id ? { ...x, vehicleManager: e.target.checked } : x))} className="w-3.5 h-3.5 accent-orange-600 cursor-pointer" />
+                                <span className="text-[10px] font-bold text-orange-600">{u.vehicleManager ? 'אחראי' : ''}</span>
+                              </div>
                             </div>
 
                             {!isAd && (
@@ -3622,9 +4157,1873 @@ const App = () => {
               </div>
             )}
 
+            {/* --------- BUDGET 2027 TAB --------- */}
+            {mainTab === 'budget2027' && (
+              <div className="space-y-6">
+
+                {/* Pirut Modal */}
+                {overwriteConfirm && (
+                  <div className="fixed inset-0 z-[2000] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                      <h3 className="font-black text-slate-800 text-base mb-2">קיים פירוט לסעיף זה</h3>
+                      <p className="text-sm text-slate-500 mb-5">האם ברצונך לדרוס את הפירוט ולשמור ערך ישיר?</p>
+                      <div className="flex gap-3 justify-end">
+                        <button
+                          className="px-5 py-2 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors"
+                          onClick={() => { if (overwriteConfirm.inputEl) overwriteConfirm.inputEl.value = String(overwriteConfirm.originalValue); setOverwriteConfirm(null); }}
+                        >ביטול</button>
+                        <button
+                          className="px-5 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm transition-colors"
+                          onClick={() => { saveDirectValue(overwriteConfirm.rowId, overwriteConfirm.column, overwriteConfirm.newValue); setOverwriteConfirm(null); }}
+                        >כן, דרוס</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <PirutModal
+                  key={pirutModal ? `${pirutModal.rowId}_${pirutModal.column}` : 'closed'}
+                  modal={pirutModal}
+                  initialRows={pirutRows}
+                  onClose={() => setPirutModal(null)}
+                  onSave={(rows) => savePirut2027(pirutModal.rowId, pirutModal.column, rows)}
+                />
+
+                {/* מסך ראשי */}
+                {budget2027SubView === 'intro' && (() => {
+                  const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                  const isLockedSalary = (r) => String(r.id).endsWith('110') || String(r.id) === '1991000310';
+
+                  // שורות תקציב של המשתמש
+                  const myRows = isBudgetManager
+                    ? (myTargets.length > 0 ? fullBudgetData.filter(r => myTargets.some(t => sameKey(t, r.wing) || sameKey(t, r.dept))) : fullBudgetData)
+                    : (myTargets.length > 0
+                        ? fullBudgetData.filter(r => myTargets.some(t => sameKey(t, r.wing) || sameKey(t, r.dept)) && !isLockedSalary(r))
+                        : fullBudgetData.filter(r => !isLockedSalary(r)));
+                  const forecastFilled  = myRows.filter(r => { const d = budget2027Data[String(r.id)] || {}; return isBudgetManager ? (d.gazburForecast  || 0) !== 0 : (d.forecast2026  || 0) !== 0; }).length;
+                  const requestedFilled = myRows.filter(r => { const d = budget2027Data[String(r.id)] || {}; return isBudgetManager ? (d.gazburRequested || 0) !== 0 : (d.requested2027 || 0) !== 0; }).length;
+
+                  // מדפסות ורכבים של המשתמש
+                  const myPrinters = printersStatic.filter(p => {
+                    if (currentUser?.role === 'ADMIN' || isBudgetManager || isItManager) return true;
+                    if (myTargets.length === 0) return true;
+                    return myTargets.some(t => sameKey(t, p.wing) || sameKey(t, p.dept));
+                  });
+                  const printersFilled = myPrinters.filter(p => { const c = printersConfirmations[String(p.id)] || {}; return c.confirmed || c.rejected; }).length;
+
+                  const myVehicles = vehiclesStatic.filter(v => {
+                    if (currentUser?.role === 'ADMIN' || isBudgetManager || isVehicleManager) return true;
+                    if (myTargets.length === 0) return true;
+                    return myTargets.some(t => sameKey(t, v.wing) || sameKey(t, v.dept));
+                  });
+                  const vehiclesFilled = myVehicles.filter(v => { const c = vehiclesConfirmations[String(v.id)] || {}; return c.confirmed || c.rejected; }).length;
+
+                  // עזר: עיגול SVG מינימלי
+                  const mkRing = (pct) => {
+                    const Rv = 19; const circv = 2 * Math.PI * Rv; const dv = (pct / 100) * circv;
+                    const col = pct >= 100 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+                    return (
+                      <svg viewBox="0 0 48 48" className="w-14 h-14 -rotate-90">
+                        <circle cx="24" cy="24" r={Rv} fill="none" stroke="#e2e8f0" strokeWidth="6" />
+                        <circle cx="24" cy="24" r={Rv} fill="none" stroke={col} strokeWidth="6"
+                          strokeDasharray={`${dv} ${circv}`} strokeLinecap="round" style={{ transition: 'stroke-dasharray 0.5s' }} />
+                      </svg>
+                    );
+                  };
+
+                  const progressCards = [
+                    { key: 'forecast', label: 'תחזית ביצוע 2026', icon: <TrendingUp size={13} className="text-blue-500" />, filled: forecastFilled, total: myRows.length, loading: budget2027Loading, tab: 'table', border: 'border-blue-200', bg: 'bg-blue-50/40' },
+                    { key: 'req',      label: 'תקציב מבוקש 2027', icon: <Target size={13} className="text-indigo-500" />,    filled: requestedFilled, total: myRows.length, loading: budget2027Loading, tab: 'table', border: 'border-indigo-200', bg: 'bg-indigo-50/40' },
+                    { key: 'print',    label: 'מדפסות',            icon: <HardHat size={13} className="text-sky-500" />,      filled: printersFilled, total: myPrinters.length, loading: printersStatic.length === 0, tab: 'printers', border: 'border-sky-200', bg: 'bg-sky-50/40' },
+                    { key: 'veh',      label: 'רכבים',             icon: <Truck size={13} className="text-orange-500" />,     filled: vehiclesFilled, total: myVehicles.length, loading: vehiclesStatic.length === 0, tab: 'vehicles', border: 'border-orange-200', bg: 'bg-orange-50/40' },
+                  ];
+
+                  return (
+                    <div className="max-w-3xl space-y-5">
+                      {/* כותרת */}
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-7">
+                        <div className="flex items-center gap-4">
+                          <div className="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center shrink-0">
+                            <FileSpreadsheet size={28} className="text-blue-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-black text-slate-800 text-xl">בניית תקציב 2027 — מועצה מקומית עומר</h3>
+                            <p className="text-slate-500 text-sm font-medium mt-0.5">מסך ראשי · הנחיות ומעקב התקדמות</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 4 כרטיסי התקדמות */}
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-7">
+                        <h4 className="font-black text-slate-700 text-sm mb-5 flex items-center gap-2">
+                          <CheckCircle2 size={16} className="text-blue-500" /> התקדמות מילוי משימות תקציב 2027
+                        </h4>
+                        <div className="grid grid-cols-2 gap-3">
+                          {progressCards.map(({ key, label, icon, filled, total, loading, tab, border, bg }) => {
+                            const pct = total > 0 ? Math.round(filled / total * 100) : 0;
+                            const pctCol = pct >= 100 ? 'text-emerald-600' : pct >= 60 ? 'text-amber-500' : 'text-red-500';
+                            const barCol = pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-500' : 'bg-red-400';
+                            return (
+                              <button key={key} onClick={() => setBudget2027SubView(tab)}
+                                className={`text-right rounded-2xl border ${border} ${bg} p-4 hover:shadow-sm transition-all flex flex-col gap-2.5`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">{icon}<span className="text-xs font-black text-slate-700">{label}</span></div>
+                                  <ChevronRight size={11} className="text-slate-300" />
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="relative shrink-0">
+                                    {mkRing(pct)}
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                      <span className={`text-[11px] font-black ${pctCol}`}>{pct}%</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    {loading ? (
+                                      <div className="flex items-center gap-1.5 text-xs text-slate-400"><Loader2 size={11} className="animate-spin" />טוען...</div>
+                                    ) : (
+                                      <>
+                                        <p className="text-xl font-black text-slate-800">{filled}<span className="text-xs font-bold text-slate-400"> / {total}</span></p>
+                                        <div className="mt-1.5 h-2 bg-white/70 rounded-full overflow-hidden border border-slate-100">
+                                          <div className={`h-full rounded-full ${barCol}`} style={{ width: `${pct}%`, transition: 'width 0.5s' }} />
+                                        </div>
+                                        {pct >= 100
+                                          ? <p className="text-[10px] font-black text-emerald-600 mt-1">הושלם</p>
+                                          : <p className="text-[10px] font-bold text-slate-400 mt-1">נותרו {total - filled}</p>
+                                        }
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* דגשים חובה */}
+                      <div className="bg-red-50 rounded-3xl border border-red-200 shadow-sm p-7">
+                        <h4 className="font-black text-red-700 text-sm mb-4 flex items-center gap-2">
+                          <AlertTriangle size={16} className="text-red-500" /> דגשים חובה — לקרוא לפני הגשה
+                        </h4>
+                        <ul className="space-y-3">
+                          {[
+                            'חובה להזין סכומים בכל סעיפי התקציב. סעיף שתקציבו המבוקש הוא 0 — יש להזין 0 במפורש. אין להשאיר שדות ריקים.',
+                            'בסעיפים מורכבים (חוזים, ספקים, רכש חוזר) — חובה לבצע פירוט מלא: לחיצה כפולה על התא ← הזנת שורות פירוט. הגשת סכום גלובאלי בלבד ללא פירוט לא תהיה רלוונטית לדיון.',
+                            'בקשות שלא יוגשו במערכת לא יידונו. הגשת הבקשה אינה מהווה אישור — האישור הסופי יינתן לאחר סיום כלל הדיונים התקציביים.',
+                          ].map((txt, i) => (
+                            <li key={i} className="flex gap-3">
+                              <span className="w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-black shrink-0 mt-0.5">{i + 1}</span>
+                              <p className="text-sm font-bold text-red-800 leading-relaxed">{txt}</p>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      {/* הנחיות מילוי */}
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-7">
+                        <h4 className="font-black text-slate-700 text-sm mb-5 flex items-center gap-2">
+                          <ClipboardList size={16} className="text-blue-500" /> הנחיות מילוי
+                        </h4>
+                        <div className="space-y-5">
+                          <div className="border-r-4 border-blue-400 pr-4">
+                            <p className="font-black text-slate-700 text-sm mb-2">תחזית ביצוע 2026</p>
+                            <ul className="space-y-1.5 text-xs font-medium text-slate-600 list-disc list-inside leading-relaxed">
+                              <li>יש להזין את <strong>סך הביצוע הצפוי לשנה המלאה</strong> — לא רק מה שנותר לנצל עד סוף השנה.</li>
+                              <li>דוגמה: ביצוע חצי-שנתי של 5,000 ₪ עם תחזית שנתית של 10,000 ₪ — יש להזין 10,000 ₪.</li>
+                              <li>רוב הסעיפים אינם ליניאריים — יש להשקיע מחשבה בצפיית הביצוע השנתי ולא פשוט להכפיל ב-2.</li>
+                            </ul>
+                          </div>
+                          <div className="border-r-4 border-indigo-400 pr-4">
+                            <p className="font-black text-slate-700 text-sm mb-2">תקציב מבוקש 2027</p>
+                            <ul className="space-y-1.5 text-xs font-medium text-slate-600 list-disc list-inside leading-relaxed">
+                              <li>הבקשות נבחנות תוך השוואה לתקציב 2025, תקציב 2026 ולביצוע בפועל — חייבת להיות הלימה, או הסבר מפורט לפער.</li>
+                              <li>הכנסות ממשרדי ממשלה — יש לתקצב לפי 95% מתחזית הביצוע 2026 ולבחון אם ההכנסה צפויה גם ב-2027.</li>
+                              <li>סעיפים מורכבים חייבים פירוט המסביר את הפעילות (ניתן לגזור מתוכניות העבודה).</li>
+                            </ul>
+                          </div>
+                          <div className="border-r-4 border-slate-300 pr-4">
+                            <p className="font-black text-slate-700 text-sm mb-2 flex items-center gap-1.5"><Lock size={12} className="text-slate-400" /> סעיפי שכר</p>
+                            <ul className="space-y-1.5 text-xs font-medium text-slate-600 list-disc list-inside leading-relaxed">
+                              <li>סעיפי השכר מחושבים על ידי הגזבר ונעולים לעריכה — אין צורך בהזנה מצדכם.</li>
+                            </ul>
+                          </div>
+                          <div className="border-r-4 border-sky-300 pr-4">
+                            <p className="font-black text-slate-700 text-sm mb-2 flex items-center gap-1.5"><HardHat size={12} className="text-sky-500" /> מדפסות ורכבים</p>
+                            <ul className="space-y-1.5 text-xs font-medium text-slate-600 list-disc list-inside leading-relaxed">
+                              <li>כל מנהל מחלקה נדרש לאשר את רשימת המדפסות והרכבים של מחלקתו, לתקן שגיאות בנתונים ולהעיר הערות במידת הצורך.</li>
+                              <li>לאחר שכלל המנהלים אישרו, אחראי המיחשוב ואחראי הרכב מסכמים ומאשרים את הנתונים הסופיים.</li>
+                              <li>הנתונים המאושרים ישמשו לחישוב סעיפי מדפסות ורכב בתקציב 2027.</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* מדריך ללשוניות */}
+                      <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-7">
+                        <h4 className="font-black text-slate-700 text-sm mb-5 flex items-center gap-2">
+                          <List size={16} className="text-blue-500" /> מדריך ללשוניות
+                        </h4>
+                        <div className="space-y-3">
+                          {[
+                            { icon: <TableProperties size={16} className="text-blue-500" />, tab: 'table', title: 'בניית סעיפי תקציב 2027', color: 'border-blue-200 bg-blue-50/40', badge: 'עיקרי',
+                              desc: 'הטבלה הראשית. מזינים כאן תחזית ביצוע 2026 ותקציב מבוקש 2027 לכל סעיף. לחיצה כפולה על תא — פתיחת טופס פירוט שורות.' },
+                            { icon: <PenLine size={16} className="text-amber-500" />, tab: 'rename', title: 'בקשה לשינוי שם סעיף', color: 'border-amber-200 bg-amber-50/40', badge: null,
+                              desc: 'הגשת בקשה לשינוי שם של סעיף תקציבי קיים. הבקשה תועבר לגזבר לאישור.' },
+                            { icon: <Plus size={16} className="text-emerald-500" />, tab: 'newItems', title: 'סעיפים חדשים', color: 'border-emerald-200 bg-emerald-50/40', badge: null,
+                              desc: 'הגשת בקשה לפתיחת סעיף חדש שאינו קיים עדיין. הסעיף יופיע בטבלה עם מזהה זמני (DRAFT) ויאושר על ידי הגזבר.' },
+                            { icon: <HardHat size={16} className="text-sky-500" />, tab: 'printers', title: 'מדפסות', color: 'border-sky-200 bg-sky-50/40', badge: null,
+                              desc: 'כל מנהל מחלקה מאשר ומתקן את רשימת המדפסות של מחלקתו. לאחר אישור כלל המנהלים — אחראי המיחשוב מסכם ומאשר.' },
+                            { icon: <Truck size={16} className="text-orange-500" />, tab: 'vehicles', title: 'רכבים', color: 'border-orange-200 bg-orange-50/40', badge: null,
+                              desc: 'כל מנהל מחלקה מאשר ומתקן את רשימת הרכבים של מחלקתו. לאחר אישור כלל המנהלים — אחראי הרכב מסכם ומאשר.' },
+                          ].map(({ icon, tab, title, color, badge, desc }) => (
+                            <button key={tab} onClick={() => setBudget2027SubView(tab)}
+                              className={`w-full text-right rounded-2xl border p-4 ${color} hover:shadow-sm transition-all flex items-start gap-3`}>
+                              <div className="w-8 h-8 bg-white rounded-xl border border-slate-100 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">{icon}</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                  <p className="font-black text-slate-800 text-sm">{title}</p>
+                                  {badge && <span className="text-[9px] font-black bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded-full shadow-sm">{badge}</span>}
+                                </div>
+                                <p className="text-xs font-medium text-slate-500 leading-relaxed">{desc}</p>
+                              </div>
+                              <ChevronRight size={14} className="text-slate-300 shrink-0 mt-1" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* הערת סיום */}
+                      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 text-center">
+                        <p className="text-xs font-bold text-slate-500">לכל שאלה ניתן לפנות לגזברות המועצה. הגשת הבקשה אינה אישור — האישור הסופי יינתן לאחר סיום כלל הדיונים התקציביים.</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* טבלת בניית סעיפים */}
+                {budget2027SubView === 'table' && (
+                  <div className="space-y-4">
+                    {/* Toolbar */}
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row gap-3 items-center justify-between sticky top-20 z-[200]">
+                      <div className="flex w-full lg:w-auto items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/20 transition-all flex-1 lg:max-w-xs">
+                        <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                        <input type="text" placeholder="חיפוש סעיף..." value={budget2027Search} onChange={e => setBudget2027Search(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
+                      </div>
+                      <div className="flex gap-2 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0">
+                        <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                          <div className="px-3 text-slate-400"><Filter size={14} /></div>
+                          <select value={budget2027FilterDept} onChange={e => setBudget2027FilterDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none">
+                            <option value="הכל">כל המחלקות</option>
+                            {budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                          <select value={budget2027FilterType} onChange={e => setBudget2027FilterType(e.target.value)} className="bg-transparent py-2.5 px-4 text-sm font-bold text-slate-700 outline-none appearance-none">
+                            <option value="הכל">הכנסה/הוצאה</option>
+                            <option value="הכנסה">הכנסה בלבד</option>
+                            <option value="הוצאה">הוצאה בלבד</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-400 shrink-0">
+                        <span className="hidden lg:inline">{filteredBudget2027.length} סעיפים</span>
+                        {budget2027Loading && <Loader2 size={14} className="animate-spin text-blue-500" />}
+                      </div>
+                    </div>
+
+                    <p className="text-xs font-bold text-slate-400 px-1">לחץ פעמיים על תא <span className="text-blue-600">תחזית ביצוע 2026</span> או <span className="text-blue-600">תקציב מבוקש 2027</span> להזנת פירוט</p>
+
+                    {/* סיכום והשוואה */}
+                    {(() => {
+                      const expRows = filteredBudget2027.filter(r => !sameKey(r.type,'הכנסה'));
+                      const incRows = filteredBudget2027.filter(r =>  sameKey(r.type,'הכנסה'));
+                      const sumF    = (arr, field) => arr.reduce((s,r) => s + Math.abs((budget2027Data[String(r.id)]||{})[field]||0), 0);
+                      const sumB    = (arr) => arr.reduce((s,r) => s + Math.abs(r.b2026||0), 0);
+                      const filled  = filteredBudget2027.filter(r => { const d=budget2027Data[String(r.id)]||{}; return d.forecast2026||d.requested2027; }).length;
+                      const pct     = filteredBudget2027.length ? Math.round(filled/filteredBudget2027.length*100) : 0;
+
+                      const b2026Exp      = sumB(expRows);
+                      const b2026Inc      = sumB(incRows);
+                      const uForecastExp  = sumF(expRows,'forecast2026');
+                      const uForecastInc  = sumF(incRows,'forecast2026');
+                      const uRequestedExp = sumF(expRows,'requested2027');
+                      const uRequestedInc = sumF(incRows,'requested2027');
+                      const gForecastExp  = sumF(expRows,'gazburForecast');
+                      const gForecastInc  = sumF(incRows,'gazburForecast');
+                      const gRequestedExp = sumF(expRows,'gazburRequested');
+                      const gRequestedInc = sumF(incRows,'gazburRequested');
+                      const hasGazbur     = (gForecastExp||gRequestedExp||gForecastInc||gRequestedInc) > 0;
+
+                      // תג פער: ירוק = טוב, אדום = לא טוב
+                      // הוצאה: b>a = חיסכון = ירוק; הכנסה: b>a = גביה טובה = ירוק
+                      const DeltaTag = ({a, b, isIncome}) => {
+                        const d = b - a;
+                        if (!d || !a) return null;
+                        const isGood = isIncome ? d > 0 : d < 0;
+                        return <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isGood?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-600'}`}>{d>0?'+':''}{formatILS(d)}</span>;
+                      };
+
+                      // שורת השוואה: שם | ערך ראשי | ערך השוואה (קטן) | תג פער
+                      const CmpRow = ({label, main, ref: refVal, refLabel, mainColor='text-slate-800', isIncome, gazVal, gazLabel}) => (
+                        <div className="flex items-center justify-between gap-1 py-0.5">
+                          <span className="text-[10px] font-bold text-slate-400 shrink-0">{label}</span>
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            {gazVal !== undefined && <span className="text-[11px] font-black text-indigo-600">{formatILS(gazVal)}</span>}
+                            {gazVal !== undefined && gazLabel && <span className="text-[9px] text-indigo-300">{gazLabel}</span>}
+                            <span className={`text-[11px] font-black ${mainColor}`}>{formatILS(main)}</span>
+                            {refVal !== undefined && <span className="text-[9px] text-slate-300">/ {formatILS(refVal)}</span>}
+                            {refVal !== undefined && <DeltaTag a={refVal} b={main} isIncome={isIncome} />}
+                            {gazVal !== undefined && <DeltaTag a={main} b={gazVal} isIncome={isIncome} />}
+                          </div>
+                        </div>
+                      );
+
+                      // כרטיס התקדמות — זהה לכולם
+                      const ProgressCard = () => (
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col justify-between">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">סעיפים שהוזנו</p>
+                            <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">{pct}%</span>
+                          </div>
+                          <div>
+                            <p className="text-2xl font-black text-slate-800">{filled} <span className="text-sm font-bold text-slate-400">מתוך {filteredBudget2027.length}</span></p>
+                            <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-gradient-to-l from-blue-500 to-blue-400 transition-all" style={{width:`${pct}%`}} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+
+                      if (isBudgetManager) {
+                        // ── גזבר: 4 כרטיסים (מבנה קודם + השוואה גזבר/משתמש) ──
+                        return (
+                          <div className="hidden lg:grid grid-cols-4 gap-3">
+                            <ProgressCard />
+                            {/* תחזית 2026: משתמש + גזבר */}
+                            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">תחזית ביצוע 2026</p>
+                                <div className="flex gap-2 text-[9px] font-bold"><span className="text-slate-400">משתמש</span><span className="text-indigo-400">גזבר</span></div>
+                              </div>
+                              <div className="space-y-1">
+                                <CmpRow label="הוצאות" main={uForecastExp} mainColor="text-slate-700" gazVal={gForecastExp} />
+                                <CmpRow label="הכנסות" main={uForecastInc} mainColor="text-emerald-700" gazVal={gForecastInc} isIncome />
+                                <div className="pt-1.5 border-t border-slate-100 flex justify-between">
+                                  <span className="text-[10px] font-bold text-slate-400">נטו</span>
+                                  <span className="text-[11px] font-black text-slate-600">{formatILS(uForecastExp - uForecastInc)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {/* מבוקש 2027: משתמש + גזבר */}
+                            <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">תקציב מבוקש 2027</p>
+                                <div className="flex gap-2 text-[9px] font-bold"><span className="text-slate-400">משתמש</span><span className="text-indigo-400">גזבר</span></div>
+                              </div>
+                              <div className="space-y-1">
+                                <CmpRow label="הוצאות" main={uRequestedExp} mainColor="text-blue-700" gazVal={gRequestedExp} />
+                                <CmpRow label="הכנסות" main={uRequestedInc} mainColor="text-emerald-700" gazVal={gRequestedInc} isIncome />
+                                <div className="pt-1.5 border-t border-slate-100 flex justify-between">
+                                  <span className="text-[10px] font-bold text-slate-400">נטו</span>
+                                  <span className="text-[11px] font-black text-blue-700">{formatILS(uRequestedExp - uRequestedInc)}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {/* פער גזבר vs משתמש */}
+                            <div className="bg-gradient-to-br from-indigo-50 to-slate-50 rounded-2xl border border-indigo-200 shadow-sm p-4">
+                              <p className="text-[11px] font-bold text-indigo-400 uppercase tracking-wide mb-3">פער גזבר / משתמש</p>
+                              {!hasGazbur ? (
+                                <p className="text-[11px] text-slate-400 font-medium text-center mt-4">טרם הוזנו נתוני גזבר</p>
+                              ) : (
+                                <div className="space-y-3">
+                                  <div>
+                                    <p className="text-[10px] font-bold text-slate-400 mb-1">תחזית 2026</p>
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between"><span className="text-[10px] text-slate-400">הוצאות</span><DeltaTag a={uForecastExp} b={gForecastExp} /></div>
+                                      <div className="flex justify-between"><span className="text-[10px] text-emerald-500">הכנסות</span><DeltaTag a={uForecastInc} b={gForecastInc} isIncome /></div>
+                                    </div>
+                                  </div>
+                                  <div className="border-t border-indigo-100 pt-2">
+                                    <p className="text-[10px] font-bold text-slate-400 mb-1">מבוקש 2027</p>
+                                    <div className="space-y-0.5">
+                                      <div className="flex justify-between"><span className="text-[10px] text-slate-400">הוצאות</span><DeltaTag a={uRequestedExp} b={gRequestedExp} /></div>
+                                      <div className="flex justify-between"><span className="text-[10px] text-emerald-500">הכנסות</span><DeltaTag a={uRequestedInc} b={gRequestedInc} isIncome /></div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // ── משתמש רגיל: 3 כרטיסים (התקדמות + השוואה מול תקציב 2026) ──
+                      return (
+                        <div className="hidden lg:grid grid-cols-3 gap-3">
+                          <ProgressCard />
+                          {/* תחזית ביצוע 2026 vs תקציב 2026 */}
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">תחזית ביצוע 2026</p>
+                              <span className="text-[9px] font-bold text-slate-300">מול תקציב 2026</span>
+                            </div>
+                            <div className="space-y-1">
+                              <CmpRow label="הוצאות" main={uForecastExp} ref={b2026Exp} mainColor="text-slate-700" />
+                              <CmpRow label="הכנסות" main={uForecastInc} ref={b2026Inc} mainColor="text-emerald-700" isIncome />
+                              <div className="pt-1.5 border-t border-slate-100 flex justify-between">
+                                <span className="text-[10px] font-bold text-slate-400">נטו תחזית</span>
+                                <span className="text-[11px] font-black text-slate-600">{formatILS(uForecastExp - uForecastInc)}</span>
+                              </div>
+                            </div>
+                          </div>
+                          {/* תקציב מבוקש 2027 vs תקציב 2026 */}
+                          <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-[11px] font-bold text-blue-400 uppercase tracking-wide">תקציב מבוקש 2027</p>
+                              <span className="text-[9px] font-bold text-slate-300">מול תקציב 2026</span>
+                            </div>
+                            <div className="space-y-1">
+                              <CmpRow label="הוצאות" main={uRequestedExp} ref={b2026Exp} mainColor="text-blue-700" />
+                              <CmpRow label="הכנסות" main={uRequestedInc} ref={b2026Inc} mainColor="text-emerald-700" isIncome />
+                              <div className="pt-1.5 border-t border-slate-100 flex justify-between">
+                                <span className="text-[10px] font-bold text-slate-400">נטו מבוקש</span>
+                                <span className="text-[11px] font-black text-blue-700">{formatILS(uRequestedExp - uRequestedInc)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Desktop table */}
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                            <th className="py-4 px-4 w-20">מזהה</th>
+                            <th className="py-4 px-4">שם סעיף תקציבי</th>
+                            <th className="py-4 px-4 w-32">מחלקה</th>
+                            <th className="py-4 px-4 w-20 text-center">סוג</th>
+                            <th className="py-4 px-4 w-32 text-left">ביצוע 2025</th>
+                            <th className="py-4 px-4 w-32 text-left">תקציב 2026</th>
+                            <th className="py-4 px-4 w-36 text-left">{execDate ? `ביצוע 2026 — ${execDate}` : 'ביצוע 2026'}</th>
+                            <th className="py-4 px-4 w-36 text-left bg-blue-50/60">תחזית ביצוע 2026</th>
+                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50/70 border-r-2 border-indigo-200">תחזית גזבר</th>}
+                            <th className="py-4 px-4 w-36 text-left bg-blue-50/60">תקציב מבוקש 2027</th>
+                            {isBudgetManager && <th className="py-4 px-4 w-36 text-left bg-indigo-50/70 border-r-2 border-indigo-200">מבוקש גזבר</th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {filteredBudget2027.length === 0 ? (
+                            <tr><td colSpan={isBudgetManager ? 11 : 9} className="py-20 text-center">
+                              <div className="flex flex-col items-center gap-3 text-slate-300">
+                                <Search size={36} strokeWidth={1.5} />
+                                <p className="font-black text-slate-400 text-base">לא נמצאו סעיפים</p>
+                              </div>
+                            </td></tr>
+                          ) : filteredBudget2027.map(row => {
+                            if (row.isDraft) {
+                              const dd = row.draftData || {};
+                              const isApproved = dd.status === 'אושר';
+                              return (
+                                <tr key={row.id} className={`hover:bg-amber-50 transition-colors group border-t-2 ${isApproved ? 'bg-emerald-50/40 border-emerald-200/60' : 'bg-amber-50/60 border-amber-200/60'}`}>
+                                  <td className={`py-3 px-4 text-[10px] font-mono ${isApproved ? 'text-emerald-700' : 'text-amber-600'}`}>{row.id}</td>
+                                  <td className="py-3 px-4 text-sm font-black text-slate-800">
+                                    <div className="flex items-center gap-2">
+                                      {row.name}
+                                      {isApproved
+                                        ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-0.5"><CheckCheck size={9} />אושר</span>
+                                        : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800">ממתין לאישור</span>}
+                                    </div>
+                                    {dd.justification && <div className="text-[10px] text-slate-400 font-normal mt-0.5 max-w-xs truncate" title={dd.justification}>{dd.justification}</div>}
+                                  </td>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-500">{row.dept}</td>
+                                  <td className="py-3 px-4 text-center"><span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold ${sameKey(row.type,'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{row.type}</span></td>
+                                  <td className="py-3 px-4 text-slate-300 text-center text-sm">—</td>
+                                  <td className="py-3 px-4 text-slate-300 text-center text-sm">—</td>
+                                  <td className="py-3 px-4 text-slate-300 text-center text-sm">—</td>
+                                  <td className="py-3 px-4 bg-blue-50/20 text-slate-300 text-center text-sm">—</td>
+                                  {isBudgetManager && <td className="py-3 px-4 bg-indigo-50/40 border-r-2 border-indigo-100 text-slate-300 text-center text-sm">—</td>}
+                                  <td className="py-3 px-4 bg-blue-50/20 text-sm font-bold text-left tabular-nums text-amber-700">{dd.requested2027 ? formatILS(dd.requested2027) : <span className="text-slate-300">—</span>}</td>
+                                  {isBudgetManager && (
+                                    <td className="py-3 px-4 bg-indigo-50/40 border-r-2 border-indigo-100">
+                                      {!isApproved && (
+                                        <button onClick={() => setApproveModal({ tempId: dd.tempId, name: row.name, realId: '' })} className="text-[10px] font-bold px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors">אשר וקצה מזהה</button>
+                                      )}
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            }
+                            const d = budget2027Data[String(row.id)] || {};
+                            const hasForecast = !!d.forecast2026;
+                            const hasRequested = !!d.requested2027;
+                            const rowPirut = (col) => budget2027Details.filter(r => String(r.id) === String(row.id) && r.column === col);
+                            const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                            const rowInMyTarget = myTargets.length === 0 ? false : (myTargets.some(t => sameKey(t, row.wing) || sameKey(t, row.dept)));
+                            const userColReadOnly = isBudgetManager && !rowInMyTarget;
+                            const isLockedRow = !isBudgetManager && (String(row.id).endsWith('110') || String(row.id) === '1991000310');
+                            return (
+                              <React.Fragment key={row.id}>
+                              <tr className={`hover:bg-slate-50/50 transition-colors group${isBudgetManager && expandedRowId === row.id ? ' bg-indigo-50/30' : ''}`}>
+                                <td className="py-3 px-4 text-[10px] font-mono text-slate-400">{row.id}</td>
+                                <td className={`py-3 px-4 text-sm font-black text-slate-800${isBudgetManager ? ' cursor-pointer' : ''}`} onClick={isBudgetManager ? () => setExpandedRowId(prev => prev === row.id ? null : row.id) : undefined}>{isBudgetManager ? (<div className="flex items-center gap-1.5">{expandedRowId === row.id ? <ChevronUp size={13} className="text-indigo-400 shrink-0" /> : <ChevronDown size={13} className="text-slate-300 group-hover:text-slate-400 shrink-0" />}{row.name}</div>) : row.name}</td>
+                                <td className="py-3 px-4 text-xs font-bold text-slate-500">{row.dept}</td>
+                                <td className="py-3 px-4 text-center"><span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold ${sameKey(row.type,'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{row.type}</span></td>
+                                <td className="py-3 px-4 text-sm font-bold text-slate-600 text-left tabular-nums">{formatILS(row.b2025)}</td>
+                                <td className="py-3 px-4 text-sm font-bold text-slate-600 text-left tabular-nums">{formatILS(row.b2026)}</td>
+                                <td className="py-3 px-4 text-sm font-bold text-slate-600 text-left tabular-nums">{formatILS(row.a2026)}</td>
+                                {/* תחזית ביצוע 2026 — עריכה למשתמש / תצוגה לגזבר שאין לו target על שורה זו */}
+                                {isLockedRow ? (
+                                  <td className="py-3 px-4 bg-slate-50/80 text-sm font-bold text-left tabular-nums text-slate-500"><div className="flex items-center gap-1.5"><Lock size={11} className="text-slate-300 shrink-0" />{d.gazburForecast ? formatILS(d.gazburForecast) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : userColReadOnly ? (
+                                  <td className="py-3 px-4 bg-blue-50/20 text-sm font-bold text-left tabular-nums text-slate-600">{hasForecast ? formatILS(d.forecast2026) : <span className="text-slate-300">—</span>}</td>
+                                ) : (
+                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                    <div className="flex items-center gap-1">
+                                      <input key={`${row.id}_forecast_${d.forecast2026}`} type="number" defaultValue={hasForecast ? d.forecast2026 : ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none text-slate-800 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('תחזית').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'תחזית', newValue: val, originalValue: d.forecast2026 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'תחזית', val); } }} />
+                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                    </div>
+                                  </td>
+                                )}
+                                {/* תחזית גזבר — גלוי ועריכה לגזבר בלבד */}
+                                {isBudgetManager && (
+                                  <td className="py-3 px-4 bg-indigo-50/40 border-r-2 border-indigo-100" onDoubleClick={() => { const existing = rowPirut('תחזית_גזבר'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית_גזבר' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                    <div className="flex items-center gap-1">
+                                      <input key={`${row.id}_gf_${d.gazburForecast}`} type="number" defaultValue={d.gazburForecast || ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:outline-none text-indigo-700 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('תחזית_גזבר').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'תחזית_גזבר', newValue: val, originalValue: d.gazburForecast || '', inputEl: e.target }); return; } saveGazburValue(row.id, 'תחזית_גזבר', val); } }} />
+                                      <button className="shrink-0 text-indigo-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט גזבר" onClick={e => { e.stopPropagation(); const existing = rowPirut('תחזית_גזבר'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית_גזבר' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                    </div>
+                                  </td>
+                                )}
+                                {/* תקציב מבוקש 2027 — עריכה למשתמש / תצוגה לגזבר שאין לו target על שורה זו */}
+                                {isLockedRow ? (
+                                  <td className="py-3 px-4 bg-slate-50/80 text-sm font-bold text-left tabular-nums text-slate-500"><div className="flex items-center gap-1.5"><Lock size={11} className="text-slate-300 shrink-0" />{d.gazburRequested ? formatILS(d.gazburRequested) : <span className="text-slate-300">—</span>}</div></td>
+                                ) : userColReadOnly ? (
+                                  <td className="py-3 px-4 bg-blue-50/20 text-sm font-bold text-left tabular-nums text-blue-600">{hasRequested ? formatILS(d.requested2027) : <span className="text-slate-300">—</span>}</td>
+                                ) : (
+                                  <td className="py-3 px-4 bg-blue-50/30" onDoubleClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                    <div className="flex items-center gap-1">
+                                      <input key={`${row.id}_requested_${d.requested2027}`} type="number" defaultValue={hasRequested ? d.requested2027 : ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-blue-300 focus:border-blue-500 focus:outline-none text-blue-700 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('מבוקש').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'מבוקש', newValue: val, originalValue: d.requested2027 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'מבוקש', val); } }} />
+                                      <button className="shrink-0 text-blue-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט" onClick={e => { e.stopPropagation(); const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                    </div>
+                                  </td>
+                                )}
+                                {/* מבוקש גזבר — גלוי ועריכה לגזבר בלבד */}
+                                {isBudgetManager && (
+                                  <td className="py-3 px-4 bg-indigo-50/40 border-r-2 border-indigo-100" onDoubleClick={() => { const existing = rowPirut('מבוקש_גזבר'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש_גזבר' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}>
+                                    <div className="flex items-center gap-1">
+                                      <input key={`${row.id}_gr_${d.gazburRequested}`} type="number" defaultValue={d.gazburRequested || ''} placeholder="0" className="w-full text-sm font-bold text-left tabular-nums bg-transparent border-b border-transparent hover:border-indigo-300 focus:border-indigo-500 focus:outline-none text-indigo-700 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('מבוקש_גזבר').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'מבוקש_גזבר', newValue: val, originalValue: d.gazburRequested || '', inputEl: e.target }); return; } saveGazburValue(row.id, 'מבוקש_גזבר', val); } }} />
+                                      <button className="shrink-0 text-indigo-400 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" title="פירוט גזבר" onClick={e => { e.stopPropagation(); const existing = rowPirut('מבוקש_גזבר'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש_גזבר' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={13} /></button>
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                              {isBudgetManager && expandedRowId === row.id && (() => {
+                                const gFR = rowPirut('תחזית_גזבר'); const gRR = rowPirut('מבוקש_גזבר');
+                                const uFR = rowPirut('תחזית'); const uRR = rowPirut('מבוקש');
+                                const pm = (pr, cc) => pr.length === 0
+                                  ? <p className="text-[10px] text-slate-300 italic py-1">אין פירוט</p>
+                                  : <table className="w-full"><thead><tr className="text-[9px] text-slate-400 border-b border-slate-100"><th className="text-right pb-1.5 font-bold">פירוט</th><th className="text-center pb-1.5 w-10 font-bold">כמות</th><th className="text-left pb-1.5 w-20 font-bold">עלות</th><th className="text-left pb-1.5 w-20 font-bold">סה״כ</th></tr></thead><tbody>{pr.map((r,i)=><tr key={i} className="border-b border-slate-50 last:border-0"><td className="py-1 text-[11px] text-slate-700">{r.pirut||'—'}</td><td className="py-1 text-[11px] text-center text-slate-500">{r.kamut}</td><td className="py-1 text-[11px] text-left tabular-nums text-slate-500">{formatILS(r.alut)}</td><td className={`py-1 text-[11px] text-left tabular-nums font-bold ${cc}`}>{formatILS(r.total)}</td></tr>)}</tbody></table>;
+                                const gFT = gFR.reduce((s,r)=>s+(r.total||0),0); const gRT = gRR.reduce((s,r)=>s+(r.total||0),0);
+                                const uFT = uFR.reduce((s,r)=>s+(r.total||0),0); const uRT = uRR.reduce((s,r)=>s+(r.total||0),0);
+                                return (
+                                  <tr key={`${row.id}_exp`}>
+                                    <td colSpan={11} className="p-0 border-b border-indigo-100 bg-indigo-50/10">
+                                      <div className="px-6 py-5">
+                                        <div className="grid grid-cols-2 gap-5">
+                                          <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm p-4">
+                                            <div className="flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-indigo-500" /><span className="text-[11px] font-black text-indigo-600 uppercase tracking-wider">פירוט גזבר</span></div>
+                                            <div className="mb-3"><div className="flex justify-between items-center mb-1.5"><span className="text-[10px] font-bold text-slate-400">תחזית ביצוע 2026</span>{gFT!==0&&<span className="text-[10px] font-black text-indigo-700 tabular-nums">{formatILS(gFT)}</span>}</div>{pm(gFR,'text-indigo-700')}</div>
+                                            <div className="border-t border-indigo-50 pt-3"><div className="flex justify-between items-center mb-1.5"><span className="text-[10px] font-bold text-slate-400">תקציב מבוקש 2027</span>{gRT!==0&&<span className="text-[10px] font-black text-indigo-700 tabular-nums">{formatILS(gRT)}</span>}</div>{pm(gRR,'text-indigo-700')}</div>
+                                          </div>
+                                          <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-4">
+                                            <div className="flex items-center gap-2 mb-3"><div className="w-2 h-2 rounded-full bg-blue-500" /><span className="text-[11px] font-black text-blue-600 uppercase tracking-wider">פירוט מחלקה</span></div>
+                                            <div className="mb-3"><div className="flex justify-between items-center mb-1.5"><span className="text-[10px] font-bold text-slate-400">תחזית ביצוע 2026</span>{uFT!==0&&<span className="text-[10px] font-black text-blue-700 tabular-nums">{formatILS(uFT)}</span>}</div>{pm(uFR,'text-blue-700')}</div>
+                                            <div className="border-t border-blue-50 pt-3"><div className="flex justify-between items-center mb-1.5"><span className="text-[10px] font-bold text-slate-400">תקציב מבוקש 2027</span>{uRT!==0&&<span className="text-[10px] font-black text-blue-700 tabular-nums">{formatILS(uRT)}</span>}</div>{pm(uRR,'text-blue-700')}</div>
+                                          </div>
+                                        </div>
+                                        <div className="mt-3 bg-white rounded-xl border border-slate-100 px-4 py-2.5 flex gap-6 flex-wrap">
+                                          <div className="flex items-center gap-2"><span className="text-[10px] text-slate-400 font-bold">פער תחזית:</span><span className={`font-black tabular-nums text-[11px] ${(d.gazburForecast||0)-(d.forecast2026||0)===0?'text-slate-400':(d.gazburForecast||0)-(d.forecast2026||0)>0?'text-rose-600':'text-emerald-600'}`}>{formatILS((d.gazburForecast||0)-(d.forecast2026||0))}</span></div>
+                                          <div className="flex items-center gap-2"><span className="text-[10px] text-slate-400 font-bold">פער מבוקש:</span><span className={`font-black tabular-nums text-[11px] ${(d.gazburRequested||0)-(d.requested2027||0)===0?'text-slate-400':(d.gazburRequested||0)-(d.requested2027||0)>0?'text-rose-600':'text-emerald-600'}`}>{formatILS((d.gazburRequested||0)-(d.requested2027||0))}</span></div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })()}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile cards */}
+                    <div className="lg:hidden space-y-3 pb-10">
+                      {filteredBudget2027.map(row => {
+                        const d = budget2027Data[String(row.id)] || {};
+                        const rowPirut = (col) => budget2027Details.filter(r => String(r.id) === String(row.id) && r.column === col);
+                        const isLockedRow = !isBudgetManager && (String(row.id).endsWith('110') || String(row.id) === '1991000310');
+                        return (
+                          <div key={row.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden">
+                            <div className={`absolute top-0 right-0 w-1 h-full ${sameKey(row.type,'הכנסה') ? 'bg-emerald-400' : 'bg-orange-400'}`} />
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="pr-2">
+                                <div className="text-[10px] font-mono text-slate-400 mb-0.5">{row.id}</div>
+                                <div className="font-black text-slate-800 text-sm leading-snug">{row.name}</div>
+                                <div className="text-xs text-slate-500 font-medium mt-1">{row.dept}</div>
+                              </div>
+                              <div className={`text-[9px] font-bold px-2 py-1 rounded-md shrink-0 ${sameKey(row.type,'הכנסה') ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>{row.type}</div>
+                            </div>
+                            <div className="bg-slate-50 rounded-xl p-3 grid grid-cols-2 gap-y-3 gap-x-2 mb-3">
+                              <div className="flex flex-col"><span className="text-[9px] uppercase font-bold text-slate-400">ביצוע 2025</span><span className="text-xs font-black text-slate-700 tabular-nums mt-0.5">{formatILS(row.b2025)}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] uppercase font-bold text-slate-400">תקציב 2026</span><span className="text-xs font-black text-slate-700 tabular-nums mt-0.5">{formatILS(row.b2026)}</span></div>
+                              <div className="flex flex-col"><span className="text-[9px] uppercase font-bold text-slate-400">ביצוע 2026</span><span className="text-xs font-black text-slate-700 tabular-nums mt-0.5">{formatILS(row.a2026)}</span></div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-100'}`}>
+                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : 'text-blue-400'}`}>תחזית ביצוע 2026</span>
+                                {isLockedRow ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-slate-300 shrink-0" /><span className="text-xs font-bold text-slate-400 tabular-nums">{d.gazburForecast ? formatILS(d.gazburForecast) : '—'}</span></div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      key={`m_${row.id}_forecast_${d.forecast2026}`}
+                                      type="number"
+                                      defaultValue={d.forecast2026 || ''}
+                                      placeholder="0"
+                                      className="w-full text-xs font-black text-blue-700 tabular-nums bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-none placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                      onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('תחזית').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'תחזית', newValue: val, originalValue: d.forecast2026 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'תחזית', val); } }}
+                                    />
+                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('תחזית'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'תחזית' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={12} /></button>
+                                  </div>
+                                )}
+                              </div>
+                              <div className={`flex flex-col p-3 rounded-xl border ${isLockedRow ? 'bg-slate-50 border-slate-200' : 'bg-blue-50 border-blue-100'}`}>
+                                <span className={`text-[9px] uppercase font-bold mb-1 ${isLockedRow ? 'text-slate-400' : 'text-blue-400'}`}>תקציב מבוקש 2027</span>
+                                {isLockedRow ? (
+                                  <div className="flex items-center gap-1"><Lock size={10} className="text-slate-300 shrink-0" /><span className="text-xs font-bold text-slate-400 tabular-nums">{d.gazburRequested ? formatILS(d.gazburRequested) : '—'}</span></div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      key={`m_${row.id}_requested_${d.requested2027}`}
+                                      type="number"
+                                      defaultValue={d.requested2027 || ''}
+                                      placeholder="0"
+                                      className="w-full text-xs font-black text-blue-700 tabular-nums bg-transparent border-b border-transparent focus:border-blue-400 focus:outline-none placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                      onBlur={e => { const val = parseFloat(e.target.value); if (!isNaN(val)) { const hasPirut = rowPirut('מבוקש').length > 0; if (hasPirut) { setOverwriteConfirm({ rowId: row.id, column: 'מבוקש', newValue: val, originalValue: d.requested2027 || '', inputEl: e.target }); return; } saveDirectValue(row.id, 'מבוקש', val); } }}
+                                    />
+                                    <button className="shrink-0 text-blue-400 hover:text-blue-600" title="פירוט" onClick={() => { const existing = rowPirut('מבוקש'); setPirutModal({ rowId: row.id, rowName: row.name, column: 'מבוקש' }); setPirutRows(existing.length > 0 ? existing.map(r => ({ pirut: r.pirut, kamut: r.kamut, alut: r.alut, total: r.total })) : [{ pirut: '', kamut: '1', alut: '', total: 0 }]); }}><List size={12} /></button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* בקשה לשינוי שם סעיף */}
+                {budget2027SubView === 'rename' && (() => {
+                  const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                  const visibleItems = fullBudgetData.filter(r => {
+                    if (currentUser?.role === 'ADMIN' || myTargets.length === 0) return true;
+                    return myTargets.some(t => sameKey(t, r.wing) || sameKey(t, r.dept));
+                  });
+                  const deptOptions = Array.from(new Set(visibleItems.map(r => cleanStr(r.dept)).filter(Boolean))).sort();
+                  const q = cleanStr(nameChangeSearch).toLowerCase();
+                  const filtered = visibleItems.filter(r => {
+                    if (nameChangeDept !== 'הכל' && !sameKey(r.dept, nameChangeDept)) return false;
+                    if (q && !cleanStr(r.name).toLowerCase().includes(q) && !String(r.id).includes(q) && !cleanStr(r.dept).toLowerCase().includes(q)) return false;
+                    return true;
+                  });
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Toolbar */}
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                        <div className="flex w-full items-center gap-2 bg-slate-50 p-1.5 rounded-xl border border-slate-200 focus-within:bg-white focus-within:ring-2 focus-within:ring-amber-500/20 transition-all flex-1 lg:max-w-xs">
+                          <Search size={16} className="text-slate-400 mr-2 shrink-0" />
+                          <input type="text" placeholder="חיפוש סעיף..." value={nameChangeSearch} onChange={e => setNameChangeSearch(e.target.value)} className="bg-transparent border-none outline-none text-sm font-bold text-slate-700 w-full" />
+                        </div>
+                        <div className="flex items-center bg-slate-50 rounded-xl border border-slate-200 shrink-0">
+                          <div className="px-3 text-slate-400"><Filter size={14} /></div>
+                          <select value={nameChangeDept} onChange={e => setNameChangeDept(e.target.value)} className="bg-transparent py-2.5 pl-4 pr-1 text-sm font-bold text-slate-700 outline-none appearance-none">
+                            <option value="הכל">כל המחלקות</option>
+                            {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-bold text-slate-400">{filtered.length} סעיפים</span>
+                          {nameChangeLoading && <Loader2 size={14} className="animate-spin text-amber-500" />}
+                          <button onClick={loadNameChangeRequests} className="text-slate-400 hover:text-amber-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                        </div>
+                      </div>
+
+                      {/* הסבר */}
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+                        <PenLine size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                        <p className="text-xs font-bold text-amber-700">הזן שם חדש מבוקש ולחץ <strong>שמור</strong>. הבקשה תישלח לגזבר לאישור. ניתן לשנות בקשה קיימת בכל עת.</p>
+                      </div>
+
+                      {/* טבלה — Desktop */}
+                      <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                        <table className="w-full text-right">
+                          <thead>
+                            <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                              <th className="py-4 px-4 w-32">מזהה</th>
+                              <th className="py-4 px-4">שם סעיף נוכחי</th>
+                              <th className="py-4 px-4 w-24">מחלקה</th>
+                              <th className="py-4 px-4 w-72 bg-amber-50/60">שם חדש מבוקש</th>
+                              <th className="py-4 px-4 w-40 bg-amber-50/60">סטטוס בקשה</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {filtered.length === 0 ? (
+                              <tr><td colSpan={5} className="py-20 text-center text-slate-300 text-sm font-bold">לא נמצאו סעיפים</td></tr>
+                            ) : filtered.map(row => {
+                              const req = nameChangeData[String(row.id)];
+                              return (
+                                <tr key={row.id} className="hover:bg-slate-50/50 transition-colors group">
+                                  <td className="py-3 px-4 text-[10px] font-mono text-slate-400">{row.id}</td>
+                                  <td className="py-3 px-4 text-sm font-black text-slate-800">{row.name}</td>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-500">{row.dept}</td>
+                                  <td className="py-3 px-4 bg-amber-50/20">
+                                    <input
+                                      key={`rename_${row.id}_${req?.requestedName||''}`}
+                                      type="text"
+                                      defaultValue={req?.requestedName || ''}
+                                      placeholder="הזן שם מבוקש..."
+                                      className="w-full text-sm font-bold bg-transparent border-b border-transparent hover:border-amber-300 focus:border-amber-500 focus:outline-none text-slate-800 placeholder-slate-300 py-0.5"
+                                      onKeyDown={e => { if (e.key === 'Enter') { saveNameChangeRequest(row.id, row.name, e.target.value); e.target.blur(); } }}
+                                      onBlur={e => saveNameChangeRequest(row.id, row.name, e.target.value)}
+                                    />
+                                  </td>
+                                  <td className="py-3 px-4 bg-amber-50/20">
+                                    {req ? (
+                                      <div>
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700"><CheckCheck size={10} />הוגשה</span>
+                                        <p className="text-[9px] text-slate-400 mt-0.5">{req.date} · {req.submittedBy}</p>
+                                      </div>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-300 font-bold">לא הוגשה</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="lg:hidden space-y-3 pb-10">
+                        {filtered.map(row => {
+                          const req = nameChangeData[String(row.id)];
+                          return (
+                            <div key={row.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                              <div className="flex justify-between items-start mb-3">
+                                <div>
+                                  <div className="text-[10px] font-mono text-slate-400 mb-0.5">{row.id}</div>
+                                  <div className="font-black text-slate-800 text-sm leading-snug">{row.name}</div>
+                                  <div className="text-xs text-slate-500 font-medium mt-0.5">{row.dept}</div>
+                                </div>
+                                {req && <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 shrink-0"><CheckCheck size={10} />הוגשה</span>}
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-[10px] font-bold text-amber-600">שם מבוקש</p>
+                                <input
+                                  key={`m_rename_${row.id}_${req?.requestedName||''}`}
+                                  type="text"
+                                  defaultValue={req?.requestedName || ''}
+                                  placeholder="הזן שם מבוקש..."
+                                  className="w-full text-sm font-bold bg-amber-50/50 border border-amber-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-amber-400/30 placeholder-slate-300"
+                                  onKeyDown={e => { if (e.key === 'Enter') { saveNameChangeRequest(row.id, row.name, e.target.value); e.target.blur(); } }}
+                                  onBlur={e => saveNameChangeRequest(row.id, row.name, e.target.value)}
+                                />
+                                {req && <p className="text-[9px] text-slate-400">{req.date} · {req.submittedBy}</p>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* סעיפים חדשים */}
+                {budget2027SubView === 'newItems' && (() => {
+                  const niTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                  const visibleNewItems = newItemRequests.filter(item => {
+                    if (currentUser?.role === 'ADMIN' || isBudgetManager) return true;
+                    if (niTargets.length === 0) return true;
+                    return niTargets.some(t => sameKey(t, item.wing) || sameKey(t, item.dept));
+                  });
+                  return (
+                  <div className="space-y-4">
+                    {/* Toolbar */}
+                    <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex items-center gap-3 sticky top-20 z-[200]">
+                      <span className="text-xs font-bold text-slate-400 ml-auto">{visibleNewItems.filter(r => r.status !== 'אושר').length} בקשות</span>
+                      {newItemsLoading && <Loader2 size={14} className="animate-spin text-emerald-500" />}
+                      <button onClick={loadNewItemRequests} className="text-slate-400 hover:text-emerald-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                      <button onClick={() => setShowNewItemForm(true)} className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl transition-colors">
+                        <Plus size={13} /> הוסף בקשה
+                      </button>
+                    </div>
+
+                    {/* Desktop table */}
+                    <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                      <table className="w-full text-right">
+                        <thead>
+                          <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                            <th className="py-4 px-4 w-24">מזהה זמני</th>
+                            <th className="py-4 px-4">שם סעיף מבוקש</th>
+                            <th className="py-4 px-4 w-28">אגף</th>
+                            <th className="py-4 px-4 w-28">מחלקה</th>
+                            <th className="py-4 px-4 w-32 text-left">סכום מבוקש</th>
+                            <th className="py-4 px-4">הסבר/הצדקה</th>
+                            <th className="py-4 px-4 w-24 text-center">סטטוס</th>
+                            <th className="py-4 px-4 w-28">מגיש</th>
+                            {isBudgetManager && <th className="py-4 px-4 w-32 text-center bg-emerald-50/60">פעולה</th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {visibleNewItems.length === 0 ? (
+                            <tr><td colSpan={isBudgetManager ? 9 : 8} className="py-20 text-center">
+                              <div className="flex flex-col items-center gap-3 text-slate-300">
+                                <Plus size={36} strokeWidth={1.5} />
+                                <p className="font-black text-slate-400 text-base">אין בקשות להוספת סעיפים</p>
+                                <button onClick={() => setShowNewItemForm(true)} className="text-sm font-bold text-emerald-500 hover:text-emerald-700 transition-colors">הגש בקשה ראשונה</button>
+                              </div>
+                            </td></tr>
+                          ) : visibleNewItems.map(item => (
+                            <tr key={item.tempId} className={`hover:bg-slate-50/50 transition-colors ${item.status === 'אושר' ? 'opacity-60' : ''}`}>
+                              <td className="py-3 px-4 text-[10px] font-mono text-amber-600">{item.tempId}</td>
+                              <td className="py-3 px-4 text-sm font-black text-slate-800">{item.name}</td>
+                              <td className="py-3 px-4 text-xs font-bold text-slate-500">{item.wing}</td>
+                              <td className="py-3 px-4 text-xs font-bold text-slate-500">{item.dept}</td>
+                              <td className="py-3 px-4 text-sm font-bold text-left tabular-nums text-blue-700">{item.requested2027 ? formatILS(item.requested2027) : <span className="text-slate-300">—</span>}</td>
+                              <td className="py-3 px-4 text-xs text-slate-500 max-w-xs truncate" title={item.justification}>{item.justification}</td>
+                              <td className="py-3 px-4 text-center">
+                                {item.status === 'אושר'
+                                  ? <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700"><CheckCheck size={10} />אושר — {item.realId}</span>
+                                  : <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">ממתין</span>}
+                              </td>
+                              <td className="py-3 px-4 text-xs text-slate-400">{item.submittedBy}<br/><span className="text-[10px]">{item.date}</span></td>
+                              {isBudgetManager && (
+                                <td className="py-3 px-4 bg-emerald-50/30 text-center">
+                                  {item.status !== 'אושר' && (
+                                    <button onClick={() => setApproveModal({ tempId: item.tempId, name: item.name, realId: '' })} className="text-[10px] font-bold px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors">אשר וקצה מזהה</button>
+                                  )}
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile cards */}
+                    <div className="lg:hidden space-y-3 pb-10">
+                      {visibleNewItems.map(item => (
+                        <div key={item.tempId} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <div className="text-[10px] font-mono text-amber-500 mb-0.5">{item.tempId}</div>
+                              <div className="font-black text-slate-800 text-sm leading-snug">{item.name}</div>
+                              <div className="text-xs text-slate-500 font-medium mt-0.5">{item.dept} · {item.wing}</div>
+                            </div>
+                            {item.status === 'אושר'
+                              ? <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 shrink-0"><CheckCheck size={10} />אושר</span>
+                              : <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0">ממתין</span>}
+                          </div>
+                          {item.requested2027 > 0 && <div className="text-sm font-black text-blue-700 tabular-nums mb-1">{formatILS(item.requested2027)}</div>}
+                          {item.justification && <p className="text-[11px] text-slate-400 leading-relaxed mb-2">{item.justification}</p>}
+                          <div className="text-[10px] text-slate-300">{item.submittedBy} · {item.date}</div>
+                          {isBudgetManager && item.status !== 'אושר' && (
+                            <button onClick={() => setApproveModal({ tempId: item.tempId, name: item.name, realId: '' })} className="mt-2 w-full text-xs font-bold py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl transition-colors">אשר וקצה מזהה</button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  );
+                })()}
+
+                {/* מדפסות */}
+                {budget2027SubView === 'printers' && (() => {
+                  const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                  const visiblePrinters = printersStatic.filter(p => {
+                    if (currentUser?.role === 'ADMIN' || isBudgetManager) return true;
+                    if (myTargets.length === 0) return true;
+                    return myTargets.some(t => sameKey(t, p.wing) || sameKey(t, p.dept));
+                  });
+                  const pDeptOptions = Array.from(new Set(visiblePrinters.map(p => cleanStr(p.dept)).filter(Boolean))).sort();
+                  const pq = cleanStr(printerSearch).toLowerCase();
+                  const filtered = visiblePrinters.filter(p => {
+                    if (printerFilterDept !== 'הכל' && !sameKey(p.dept, printerFilterDept)) return false;
+                    if (pq && !cleanStr(p.name).toLowerCase().includes(pq) && !cleanStr(p.dept).toLowerCase().includes(pq) && !cleanStr(p.type).toLowerCase().includes(pq)) return false;
+                    return true;
+                  });
+                  const confirmed = visiblePrinters.filter(p => printersConfirmations[String(p.id)]?.confirmed).length;
+                  const rejected = visiblePrinters.filter(p => printersConfirmations[String(p.id)]?.rejected).length;
+
+                  const printerTypeColor = (type) => {
+                    if (!type) return 'bg-slate-50 text-slate-500';
+                    const t = type.trim();
+                    if (t.includes('צבע A-3')) return 'bg-purple-50 text-purple-700';
+                    if (t.includes('צבע A-4') || t.includes('צבע  A-4')) return 'bg-blue-50 text-blue-700';
+                    if (t.includes('ש') && t.includes('ל')) return 'bg-slate-50 text-slate-600';
+                    if (t.includes('שחור לבן')) return 'bg-slate-100 text-slate-500';
+                    if (t.includes('צבע')) return 'bg-blue-50 text-blue-600';
+                    return 'bg-slate-50 text-slate-500';
+                  };
+
+                  // ---- תצוגת אחראי מיחשוב ----
+                  if (isItManager) {
+                    const pq2 = cleanStr(printerSearch).toLowerCase();
+                    const itDeptOptions = Array.from(new Set(printersStatic.map(p => cleanStr(p.dept)).filter(Boolean))).sort();
+                    const itFiltered = printersStatic.filter(p => {
+                      if (printerFilterDept !== 'הכל' && !sameKey(p.dept, printerFilterDept)) return false;
+                      if (pq2 && !cleanStr(p.name).toLowerCase().includes(pq2) && !cleanStr(p.dept).toLowerCase().includes(pq2) && !cleanStr(p.wing).toLowerCase().includes(pq2)) return false;
+                      return true;
+                    });
+                    const pendingList  = itFiltered.filter(p => { const c = printersConfirmations[String(p.id)] || {}; return !c.confirmed && !c.rejected; });
+                    const reviewedList = itFiltered.filter(p => { const c = printersConfirmations[String(p.id)] || {}; return c.confirmed || c.rejected; });
+                    const totalReviewed = printersStatic.filter(p => { const c = printersConfirmations[String(p.id)] || {}; return c.confirmed || c.rejected; }).length;
+                    const totalPending  = printersStatic.filter(p => { const c = printersConfirmations[String(p.id)] || {}; return !c.confirmed && !c.rejected; }).length;
+                    const totalConfirmed = printersStatic.filter(p => printersConfirmations[String(p.id)]?.confirmed).length;
+                    const totalRejected  = printersStatic.filter(p => printersConfirmations[String(p.id)]?.rejected).length;
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Tabs */}
+                        <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 flex gap-1.5">
+                          <button onClick={() => setPrinterItView('pending')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${printerItView === 'pending' ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <Clock size={14} />
+                            ממתינות לאישור
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-black ${printerItView === 'pending' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'}`}>{totalPending}</span>
+                          </button>
+                          <button onClick={() => setPrinterItView('reviewed')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${printerItView === 'reviewed' ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <CheckCircle2 size={14} />
+                            לאחר התייחסות
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-black ${printerItView === 'reviewed' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-600'}`}>{totalReviewed}</span>
+                          </button>
+                        </div>
+
+                        {/* Toolbar */}
+                        <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3">
+                          <div className="relative flex-1 w-full lg:w-auto">
+                            <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                            <input value={printerSearch} onChange={e => setPrinterSearch(e.target.value)} placeholder="חיפוש שם, מחלקה, אגף..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-violet-300 focus:bg-white rounded-xl focus:outline-none transition-all" />
+                          </div>
+                          <select value={printerFilterDept} onChange={e => setPrinterFilterDept(e.target.value)} className="text-sm font-bold bg-slate-50 border border-transparent focus:border-violet-300 rounded-xl px-3 py-2 focus:outline-none text-slate-600 w-full lg:w-auto">
+                            <option value="הכל">כל המחלקות</option>
+                            {itDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {printersLoading && <Loader2 size={14} className="animate-spin text-violet-500" />}
+                            <button onClick={loadPrintersConfirmations} className="text-slate-400 hover:text-violet-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                          </div>
+                        </div>
+
+                        {/* Progress summary */}
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-3 flex items-center gap-4">
+                          <span className="text-xs font-bold text-slate-400 shrink-0">סטטוס כללי</span>
+                          <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden flex">
+                            <div className="bg-emerald-500 h-2 transition-all duration-500" style={{ width: printersStatic.length > 0 ? `${Math.round(totalConfirmed / printersStatic.length * 100)}%` : '0%' }} />
+                            <div className="bg-red-400 h-2 transition-all duration-500" style={{ width: printersStatic.length > 0 ? `${Math.round(totalRejected / printersStatic.length * 100)}%` : '0%' }} />
+                          </div>
+                          <div className="flex items-center gap-3 text-xs font-bold shrink-0">
+                            <span className="text-emerald-600">{totalConfirmed} אושרו</span>
+                            <span className="text-red-500">{totalRejected} שגויים</span>
+                            <span className="text-amber-500">{totalPending} ממתינים</span>
+                          </div>
+                        </div>
+
+                        {/* ממתינות לאישור */}
+                        {printerItView === 'pending' && (
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                              <Clock size={14} className="text-amber-500" />
+                              <span className="text-sm font-bold text-slate-600">טרם התייחסו — {pendingList.length} מדפסות</span>
+                            </div>
+                            <table className="w-full text-right">
+                              <thead>
+                                <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                  <th className="py-3 px-4">אגף</th><th className="py-3 px-4">מחלקה</th><th className="py-3 px-4">שם</th><th className="py-3 px-4">מבנה</th><th className="py-3 px-4">סוג מדפסת</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {pendingList.length === 0 ? (
+                                  <tr><td colSpan={5} className="py-12 text-center text-emerald-400 font-bold">כל המדפסות טופלו</td></tr>
+                                ) : pendingList.map(p => (
+                                  <tr key={p.id} className="hover:bg-amber-50/30 transition-colors">
+                                    <td className="py-2.5 px-4 text-xs font-bold text-slate-500">{p.wing}</td>
+                                    <td className="py-2.5 px-4 text-xs font-bold text-slate-600">{p.dept}</td>
+                                    <td className="py-2.5 px-4 text-sm font-black text-slate-800">{p.name}</td>
+                                    <td className="py-2.5 px-4 text-xs text-slate-400">{p.building}</td>
+                                    <td className="py-2.5 px-4"><span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${printerTypeColor(p.type)}`}>{p.type}</span></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {/* לאחר התייחסות */}
+                        {printerItView === 'reviewed' && (
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-emerald-500" />
+                              <span className="text-sm font-bold text-slate-600">לאחר התייחסות — {reviewedList.length} מדפסות</span>
+                              <span className="text-[10px] text-slate-400 mr-2">שורות "לא נכון" ניתנות לתיקון</span>
+                            </div>
+                            <table className="w-full text-right">
+                              <thead>
+                                <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                  <th className="py-3 px-3">אגף</th><th className="py-3 px-3">מחלקה</th>
+                                  <th className="py-3 px-3">שם</th><th className="py-3 px-3">מבנה</th><th className="py-3 px-3">סוג מדפסת</th>
+                                  <th className="py-3 px-3 w-24 text-center">סטטוס</th>
+                                  <th className="py-3 px-3">הערת משתמש</th>
+                                  <th className="py-3 px-3 w-24">מגיש</th>
+                                  <th className="py-3 px-3 w-32 text-center bg-violet-50/40">פעולה / תיקון</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {reviewedList.length === 0 ? (
+                                  <tr><td colSpan={9} className="py-12 text-center text-slate-300 font-bold">עדיין אין התייחסויות</td></tr>
+                                ) : reviewedList.map(p => {
+                                  const conf = printersConfirmations[String(p.id)] || {};
+                                  const isEditing = printerItEdit?.id === String(p.id);
+                                  const hasCorrected = !!(conf.correctedBy);
+                                  const dispName     = hasCorrected && conf.correctedName     ? conf.correctedName     : p.name;
+                                  const dispBuilding = hasCorrected && conf.correctedBuilding ? conf.correctedBuilding : p.building;
+                                  const dispType     = hasCorrected && conf.correctedType     ? conf.correctedType     : p.type;
+                                  return (
+                                    <tr key={p.id} className={`transition-colors ${isEditing ? 'bg-violet-50/60 ring-1 ring-violet-200' : conf.confirmed ? 'hover:bg-slate-50/50 bg-emerald-50/20' : 'hover:bg-red-50/30 bg-red-50/20'}`}>
+                                      <td className="py-2.5 px-3 text-xs font-bold text-slate-500">{p.wing}</td>
+                                      <td className="py-2.5 px-3 text-xs font-bold text-slate-600">{p.dept}</td>
+                                      {/* שם */}
+                                      <td className="py-2.5 px-3">
+                                        {isEditing ? (
+                                          <input value={printerItEdit.name} onChange={e => setPrinterItEdit(v => ({ ...v, name: e.target.value }))}
+                                            className="w-full text-xs bg-white border border-violet-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                                        ) : (
+                                          <div>
+                                            <div className={`text-sm font-black ${hasCorrected && conf.correctedName ? 'text-violet-700' : 'text-slate-800'}`}>{dispName}</div>
+                                            {hasCorrected && conf.correctedName && <div className="text-[9px] text-slate-400 line-through">{p.name}</div>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      {/* מבנה */}
+                                      <td className="py-2.5 px-3">
+                                        {isEditing ? (
+                                          <input value={printerItEdit.building} onChange={e => setPrinterItEdit(v => ({ ...v, building: e.target.value }))}
+                                            className="w-full text-xs bg-white border border-violet-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                                        ) : (
+                                          <div>
+                                            <div className={`text-xs ${hasCorrected && conf.correctedBuilding ? 'text-violet-700 font-bold' : 'text-slate-400'}`}>{dispBuilding}</div>
+                                            {hasCorrected && conf.correctedBuilding && <div className="text-[9px] text-slate-300 line-through">{p.building}</div>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      {/* סוג מדפסת */}
+                                      <td className="py-2.5 px-3">
+                                        {isEditing ? (
+                                          <input value={printerItEdit.type} onChange={e => setPrinterItEdit(v => ({ ...v, type: e.target.value }))}
+                                            className="w-full text-xs bg-white border border-violet-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                                        ) : (
+                                          <div>
+                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${hasCorrected && conf.correctedType ? 'bg-violet-100 text-violet-700' : printerTypeColor(p.type)}`}>{dispType}</span>
+                                            {hasCorrected && conf.correctedType && <div className="text-[9px] text-slate-300 line-through mt-0.5">{p.type}</div>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-center">
+                                        {conf.confirmed ? (
+                                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[10px] font-black"><CheckCheck size={10} /> אושר</span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-100 text-red-700 text-[10px] font-black"><X size={10} /> לא נכון</span>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-xs text-slate-600 max-w-[140px]">
+                                        <span className="line-clamp-2">{conf.note || <span className="text-slate-300">—</span>}</span>
+                                      </td>
+                                      <td className="py-2.5 px-3">
+                                        <div className="text-[10px] font-bold text-slate-500">{conf.submittedBy}</div>
+                                        <div className="text-[9px] text-slate-300">{conf.date}</div>
+                                      </td>
+                                      {/* פעולה / תיקון */}
+                                      <td className="py-2.5 px-3 bg-violet-50/30 text-center">
+                                        {isEditing ? (
+                                          <div className="flex flex-col gap-1 items-center">
+                                            <button
+                                              onClick={() => {
+                                                saveItCorrection(p.id, printerItEdit.name, printerItEdit.building, printerItEdit.type);
+                                                setPrinterItEdit(null);
+                                              }}
+                                              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 bg-violet-600 text-white rounded-lg text-[10px] font-bold hover:bg-violet-700 transition-colors"
+                                            >
+                                              <CheckCheck size={10} /> שמור תיקון
+                                            </button>
+                                            <button onClick={() => setPrinterItEdit(null)} className="w-full px-2 py-1 text-slate-400 hover:text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-100 transition-colors">
+                                              בטל
+                                            </button>
+                                          </div>
+                                        ) : conf.rejected ? (
+                                          <div className="flex flex-col items-center gap-1">
+                                            {hasCorrected ? (
+                                              <div className="text-center">
+                                                <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-100 text-violet-700 text-[9px] font-black mb-1">
+                                                  <CheckCheck size={9} /> תוקן ע״י מיחשוב
+                                                </div>
+                                                <div className="text-[9px] text-violet-600 font-bold">{conf.correctedBy}</div>
+                                                <div className="text-[8px] text-slate-300">{conf.correctedDate}</div>
+                                              </div>
+                                            ) : null}
+                                            <button
+                                              onClick={() => setPrinterItEdit({ id: String(p.id), name: dispName, building: dispBuilding, type: dispType })}
+                                              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 hover:bg-violet-100 hover:text-violet-700 rounded-lg text-[10px] font-bold transition-colors"
+                                            >
+                                              <PenLine size={10} /> {hasCorrected ? 'ערוך תיקון' : 'תקן נתון'}
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <span className="text-[9px] text-slate-300">—</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // ---- תצוגה רגילה למנהל מחלקה/אגף ----
+                  return (
+                    <div className="space-y-4">
+                      {/* Toolbar */}
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                        <div className="relative flex-1 w-full lg:w-auto">
+                          <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                          <input value={printerSearch} onChange={e => setPrinterSearch(e.target.value)} placeholder="חיפוש..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-violet-300 focus:bg-white rounded-xl focus:outline-none transition-all" />
+                        </div>
+                        <select value={printerFilterDept} onChange={e => setPrinterFilterDept(e.target.value)} className="text-sm font-bold bg-slate-50 border border-transparent focus:border-violet-300 rounded-xl px-3 py-2 focus:outline-none text-slate-600 w-full lg:w-auto">
+                          <option value="הכל">כל המחלקות</option>
+                          {pDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 text-xs font-bold">
+                            <span className="text-emerald-600">{confirmed} אושרו</span>
+                            {rejected > 0 && <><span className="text-slate-300">·</span><span className="text-red-500">{rejected} שגויים</span></>}
+                            <span className="text-slate-300">·</span>
+                            <span className="text-slate-400">{visiblePrinters.length - confirmed - rejected} ממתינים</span>
+                          </div>
+                          {printersLoading && <Loader2 size={14} className="animate-spin text-violet-500" />}
+                          <button onClick={loadPrintersConfirmations} className="text-slate-400 hover:text-violet-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                        </div>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-3 flex items-center gap-4">
+                        <span className="text-xs font-bold text-slate-400 shrink-0">התקדמות אישורים</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden flex">
+                          <div className="bg-emerald-500 h-2 transition-all duration-500" style={{ width: visiblePrinters.length > 0 ? `${Math.round(confirmed / visiblePrinters.length * 100)}%` : '0%' }} />
+                          <div className="bg-red-400 h-2 transition-all duration-500" style={{ width: visiblePrinters.length > 0 ? `${Math.round(rejected / visiblePrinters.length * 100)}%` : '0%' }} />
+                        </div>
+                        <span className="text-xs font-black text-slate-600 shrink-0">{visiblePrinters.length > 0 ? Math.round((confirmed + rejected) / visiblePrinters.length * 100) : 0}%</span>
+                      </div>
+
+                      {/* Desktop table */}
+                      <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                        <table className="w-full text-right">
+                          <thead>
+                            <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                              <th className="py-4 px-4 w-28">אגף</th>
+                              <th className="py-4 px-4 w-36">מחלקה</th>
+                              <th className="py-4 px-4">שם</th>
+                              <th className="py-4 px-4 w-32">מבנה</th>
+                              <th className="py-4 px-4 w-44">סוג מדפסת</th>
+                              <th className="py-4 px-4 w-40 text-center">נכון / שגוי</th>
+                              <th className="py-4 px-4 bg-red-50/30">הערה (חובה אם שגוי)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {filtered.length === 0 ? (
+                              <tr><td colSpan={7} className="py-16 text-center text-slate-300 font-bold">לא נמצאו רשומות</td></tr>
+                            ) : filtered.map(p => {
+                              const key = String(p.id);
+                              const conf = printersConfirmations[key] || {};
+                              return (
+                                <tr key={key} className={`hover:bg-slate-50/50 transition-colors group ${conf.confirmed ? 'bg-emerald-50/20' : conf.rejected ? 'bg-red-50/20' : ''}`}>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-500">{p.wing}</td>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-600">{p.dept}</td>
+                                  <td className="py-3 px-4 text-sm font-black text-slate-800">{p.name}</td>
+                                  <td className="py-3 px-4 text-xs text-slate-400">{p.building}</td>
+                                  <td className="py-3 px-4"><span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${printerTypeColor(p.type)}`}>{p.type}</span></td>
+                                  <td className="py-3 px-4 text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        onClick={() => savePrinterConfirmation(p, 'confirmed', '')}
+                                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${conf.confirmed ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600'}`}
+                                        title={conf.confirmed ? `אושר ע"י ${conf.submittedBy || ''}` : 'נתון נכון'}
+                                      >
+                                        <CheckCheck size={11} /> נכון
+                                      </button>
+                                      <button
+                                        onClick={() => { if (!conf.rejected) setPrinterRejectedEdit(prev => prev?.key === key ? prev : { key, note: '' }); }}
+                                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${conf.rejected ? 'bg-red-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-600'}`}
+                                        title="נתון שגוי"
+                                      >
+                                        <X size={11} /> שגוי
+                                      </button>
+                                    </div>
+                                    {(conf.confirmed || conf.rejected) && <div className={`text-[8px] font-bold mt-0.5 leading-none ${conf.confirmed ? 'text-emerald-500' : 'text-red-400'}`}>{conf.submittedBy}</div>}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {conf.rejected ? (
+                                      <div>
+                                        <input
+                                          key={`note_${key}_${conf.note || ''}`}
+                                          type="text"
+                                          defaultValue={conf.note || ''}
+                                          placeholder="* יש להזין הסבר מה שגוי"
+                                          autoFocus={!conf.note}
+                                          className={`w-full text-xs bg-transparent border-b ${conf.note ? 'border-red-200 focus:border-red-400' : 'border-red-400'} focus:outline-none text-slate-700 placeholder-red-300 py-0.5`}
+                                          onBlur={e => {
+                                            const v = e.target.value.trim();
+                                            if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                            if (v !== (conf.note || '').trim()) savePrinterConfirmation(p, 'rejected', v);
+                                          }}
+                                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                                        />
+                                        {conf.note && conf.date && <div className="text-[9px] text-red-300 mt-0.5">{conf.date} · {conf.submittedBy}</div>}
+                                      </div>
+                                    ) : printerRejectedEdit?.key === key ? (
+                                      <input
+                                        type="text"
+                                        value={printerRejectedEdit.note}
+                                        onChange={e => setPrinterRejectedEdit(prev => ({ ...prev, note: e.target.value }))}
+                                        placeholder="* יש להזין הסבר מה שגוי"
+                                        autoFocus
+                                        className="w-full text-xs bg-transparent border-b border-red-400 focus:outline-none text-slate-700 placeholder-red-300 py-0.5"
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            const v = printerRejectedEdit.note.trim();
+                                            if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                            savePrinterConfirmation(p, 'rejected', v);
+                                            setPrinterRejectedEdit(null);
+                                          }
+                                          if (e.key === 'Escape') setPrinterRejectedEdit(null);
+                                        }}
+                                        onBlur={() => {
+                                          const v = (printerRejectedEdit?.note || '').trim();
+                                          if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); setPrinterRejectedEdit(null); return; }
+                                          savePrinterConfirmation(p, 'rejected', v);
+                                          setPrinterRejectedEdit(null);
+                                        }}
+                                      />
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="lg:hidden space-y-3 pb-10">
+                        {filtered.map(p => {
+                          const key = String(p.id);
+                          const conf = printersConfirmations[key] || {};
+                          return (
+                            <div key={key} className={`bg-white p-4 rounded-2xl border shadow-sm ${conf.confirmed ? 'border-emerald-200 bg-emerald-50/20' : conf.rejected ? 'border-red-200 bg-red-50/20' : 'border-slate-100'}`}>
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <div className="text-[10px] font-bold text-violet-500 mb-0.5">{p.wing} · {p.dept}</div>
+                                  <div className="font-black text-slate-800 text-sm leading-snug">{p.name}</div>
+                                  <div className="text-xs text-slate-400 mt-0.5">{p.building}</div>
+                                </div>
+                                <div className="flex gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => savePrinterConfirmation(p, 'confirmed', '')}
+                                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${conf.confirmed ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-300 hover:bg-emerald-100 hover:text-emerald-500'}`}
+                                    title="נתון נכון"
+                                  >
+                                    <CheckCheck size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => { if (!conf.rejected) setPrinterRejectedEdit(prev => prev?.key === key ? prev : { key, note: '' }); }}
+                                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${conf.rejected ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-300 hover:bg-red-100 hover:text-red-500'}`}
+                                    title="נתון שגוי"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              </div>
+                              <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold mb-2 ${printerTypeColor(p.type)}`}>{p.type}</span>
+                              {conf.rejected ? (
+                                <input
+                                  key={`mnote_${key}_${conf.note || ''}`}
+                                  type="text"
+                                  defaultValue={conf.note || ''}
+                                  placeholder="* יש להזין הסבר מה שגוי"
+                                  autoFocus={!conf.note}
+                                  className="w-full text-xs bg-red-50 border border-red-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300/40 placeholder-red-300 text-slate-700"
+                                  onBlur={e => {
+                                    const v = e.target.value.trim();
+                                    if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                    if (v !== (conf.note || '').trim()) savePrinterConfirmation(p, 'rejected', v);
+                                  }}
+                                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                                />
+                              ) : printerRejectedEdit?.key === key ? (
+                                <input
+                                  type="text"
+                                  value={printerRejectedEdit.note}
+                                  onChange={e => setPrinterRejectedEdit(prev => ({ ...prev, note: e.target.value }))}
+                                  placeholder="* יש להזין הסבר מה שגוי"
+                                  autoFocus
+                                  className="w-full text-xs bg-red-50 border border-red-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300/40 placeholder-red-300 text-slate-700"
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      const v = printerRejectedEdit.note.trim();
+                                      if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                      savePrinterConfirmation(p, 'rejected', v);
+                                      setPrinterRejectedEdit(null);
+                                    }
+                                    if (e.key === 'Escape') setPrinterRejectedEdit(null);
+                                  }}
+                                  onBlur={() => {
+                                    const v = (printerRejectedEdit?.note || '').trim();
+                                    if (!v) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); setPrinterRejectedEdit(null); return; }
+                                    savePrinterConfirmation(p, 'rejected', v);
+                                    setPrinterRejectedEdit(null);
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* רכבים */}
+                {budget2027SubView === 'vehicles' && (() => {
+                  const myTargets = [currentUser?.target1, currentUser?.target2].filter(Boolean).map(t => cleanStr(t));
+                  const visibleVehicles = vehiclesStatic.filter(v => {
+                    if (currentUser?.role === 'ADMIN' || isVehicleManager) return true;
+                    if (myTargets.length === 0) return true;
+                    return myTargets.some(t => sameKey(t, v.wing) || sameKey(t, v.dept));
+                  });
+                  const vDeptOptions = Array.from(new Set(visibleVehicles.map(v => cleanStr(v.dept)).filter(Boolean))).sort();
+                  const vq = cleanStr(vehicleSearch).toLowerCase();
+                  const filtered = visibleVehicles.filter(v => {
+                    if (vehicleFilterDept !== 'הכל' && !sameKey(v.dept, vehicleFilterDept)) return false;
+                    if (vq && !cleanStr(v.driver).toLowerCase().includes(vq) && !cleanStr(v.dept).toLowerCase().includes(vq) && !cleanStr(v.vehicleType).toLowerCase().includes(vq) && !cleanStr(v.license).toLowerCase().includes(vq)) return false;
+                    return true;
+                  });
+                  const confirmed = visibleVehicles.filter(v => vehiclesConfirmations[String(v.id)]?.confirmed).length;
+                  const rejected  = visibleVehicles.filter(v => vehiclesConfirmations[String(v.id)]?.rejected).length;
+
+                  // ---- תצוגת אחראי רכב ----
+                  if (isVehicleManager) {
+                    const vq2 = cleanStr(vehicleSearch).toLowerCase();
+                    const allDeptOptions = Array.from(new Set(vehiclesStatic.map(v => cleanStr(v.dept)).filter(Boolean))).sort();
+                    const itFiltered = vehiclesStatic.filter(v => {
+                      if (vehicleFilterDept !== 'הכל' && !sameKey(v.dept, vehicleFilterDept)) return false;
+                      if (vq2 && !cleanStr(v.driver).toLowerCase().includes(vq2) && !cleanStr(v.dept).toLowerCase().includes(vq2) && !cleanStr(v.wing).toLowerCase().includes(vq2) && !cleanStr(v.vehicleType).toLowerCase().includes(vq2)) return false;
+                      return true;
+                    });
+                    const pendingList  = itFiltered.filter(v => { const c = vehiclesConfirmations[String(v.id)] || {}; return !c.confirmed && !c.rejected; });
+                    const reviewedList = itFiltered.filter(v => { const c = vehiclesConfirmations[String(v.id)] || {}; return c.confirmed || c.rejected; });
+                    const totalReviewed  = vehiclesStatic.filter(v => { const c = vehiclesConfirmations[String(v.id)] || {}; return c.confirmed || c.rejected; }).length;
+                    const totalPending   = vehiclesStatic.filter(v => { const c = vehiclesConfirmations[String(v.id)] || {}; return !c.confirmed && !c.rejected; }).length;
+                    const totalConfirmed = vehiclesStatic.filter(v => vehiclesConfirmations[String(v.id)]?.confirmed).length;
+                    const totalRejected  = vehiclesStatic.filter(v => vehiclesConfirmations[String(v.id)]?.rejected).length;
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="bg-white p-1.5 rounded-2xl shadow-sm border border-slate-100 flex gap-1.5">
+                          <button onClick={() => setVehicleManagerView('pending')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${vehicleManagerView === 'pending' ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <Clock size={14} /> ממתינות לאישור
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-black ${vehicleManagerView === 'pending' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-600'}`}>{totalPending}</span>
+                          </button>
+                          <button onClick={() => setVehicleManagerView('reviewed')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all ${vehicleManagerView === 'reviewed' ? 'bg-slate-900 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}>
+                            <CheckCircle2 size={14} /> לאחר התייחסות
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-black ${vehicleManagerView === 'reviewed' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-600'}`}>{totalReviewed}</span>
+                          </button>
+                        </div>
+                        <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3">
+                          <div className="relative flex-1 w-full lg:w-auto">
+                            <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                            <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)} placeholder="חיפוש הנהג, סוג רכב, מחלקה..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-orange-300 focus:bg-white rounded-xl focus:outline-none transition-all" />
+                          </div>
+                          <select value={vehicleFilterDept} onChange={e => setVehicleFilterDept(e.target.value)} className="text-sm font-bold bg-slate-50 border border-transparent focus:border-orange-300 rounded-xl px-3 py-2 focus:outline-none text-slate-600 w-full lg:w-auto">
+                            <option value="הכל">כל המחלקות</option>
+                            {allDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {vehiclesLoading && <Loader2 size={14} className="animate-spin text-orange-500" />}
+                            <button onClick={loadVehiclesConfirmations} className="text-slate-400 hover:text-orange-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                          </div>
+                        </div>
+                        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-3 flex items-center gap-4">
+                          <span className="text-xs font-bold text-slate-400 shrink-0">סטטוס כללי</span>
+                          <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden flex">
+                            <div className="bg-emerald-500 h-2 transition-all duration-500" style={{ width: vehiclesStatic.length > 0 ? `${Math.round(totalConfirmed / vehiclesStatic.length * 100)}%` : '0%' }} />
+                            <div className="bg-red-400 h-2 transition-all duration-500" style={{ width: vehiclesStatic.length > 0 ? `${Math.round(totalRejected / vehiclesStatic.length * 100)}%` : '0%' }} />
+                          </div>
+                          <div className="flex items-center gap-3 text-xs font-bold shrink-0">
+                            <span className="text-emerald-600">{totalConfirmed} אושרו</span>
+                            <span className="text-red-500">{totalRejected} שגויים</span>
+                            <span className="text-amber-500">{totalPending} ממתינים</span>
+                          </div>
+                        </div>
+
+                        {vehicleManagerView === 'pending' && (
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                              <Clock size={14} className="text-amber-500" />
+                              <span className="text-sm font-bold text-slate-600">טרם התייחסו — {pendingList.length} רכבים</span>
+                            </div>
+                            <table className="w-full text-right">
+                              <thead>
+                                <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                  <th className="py-3 px-4">מס' רישוי</th><th className="py-3 px-4">אגף</th><th className="py-3 px-4">מחלקה</th><th className="py-3 px-4">הנהג</th><th className="py-3 px-4">סוג רכב</th><th className="py-3 px-4">קטגוריה</th><th className="py-3 px-4 text-center">שנה</th><th className="py-3 px-4 text-center">טסט</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {pendingList.length === 0 ? (
+                                  <tr><td colSpan={8} className="py-12 text-center text-emerald-400 font-bold">כל הרכבים טופלו</td></tr>
+                                ) : pendingList.map(v => (
+                                  <tr key={v.id} className="hover:bg-amber-50/30 transition-colors">
+                                    <td className="py-2.5 px-4 text-xs font-mono text-slate-500">{v.license}</td>
+                                    <td className="py-2.5 px-4 text-xs font-bold text-slate-500">{v.wing}</td>
+                                    <td className="py-2.5 px-4 text-xs font-bold text-slate-600">{v.dept}</td>
+                                    <td className="py-2.5 px-4 text-sm font-black text-slate-800">{v.driver}</td>
+                                    <td className="py-2.5 px-4 text-xs text-slate-600">{v.vehicleType}</td>
+                                    <td className="py-2.5 px-4"><span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700">{v.category}</span></td>
+                                    <td className="py-2.5 px-4 text-center text-xs text-slate-400">{v.year}</td>
+                                    <td className="py-2.5 px-4 text-center text-xs text-slate-400">{v.test}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {vehicleManagerView === 'reviewed' && (
+                          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                            <div className="px-5 py-3 border-b border-slate-50 flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-emerald-500" />
+                              <span className="text-sm font-bold text-slate-600">לאחר התייחסות — {reviewedList.length} רכבים</span>
+                              <span className="text-[10px] text-slate-400 mr-2">שורות "לא נכון" ניתנות לתיקון</span>
+                            </div>
+                            <table className="w-full text-right">
+                              <thead>
+                                <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                                  <th className="py-3 px-3">מס' רישוי</th><th className="py-3 px-3">מחלקה</th>
+                                  <th className="py-3 px-3">הנהג</th><th className="py-3 px-3">סוג רכב</th>
+                                  <th className="py-3 px-3 w-24 text-center">סטטוס</th>
+                                  <th className="py-3 px-3">הערת משתמש</th>
+                                  <th className="py-3 px-3 w-24">מגיש</th>
+                                  <th className="py-3 px-3 w-32 text-center bg-orange-50/40">פעולה / תיקון</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {reviewedList.length === 0 ? (
+                                  <tr><td colSpan={8} className="py-12 text-center text-slate-300 font-bold">עדיין אין התייחסויות</td></tr>
+                                ) : reviewedList.map(v => {
+                                  const conf = vehiclesConfirmations[String(v.id)] || {};
+                                  const isEditing = vehicleManagerEdit?.id === String(v.id);
+                                  const hasCorrected = !!(conf.correctedBy);
+                                  const dispDriver = hasCorrected && conf.correctedDriver ? conf.correctedDriver : v.driver;
+                                  const dispType   = hasCorrected && conf.correctedType   ? conf.correctedType   : v.vehicleType;
+                                  return (
+                                    <tr key={v.id} className={`transition-colors ${isEditing ? 'bg-orange-50/60 ring-1 ring-orange-200' : conf.confirmed ? 'hover:bg-slate-50/50 bg-emerald-50/20' : 'hover:bg-red-50/30 bg-red-50/20'}`}>
+                                      <td className="py-2.5 px-3 text-xs font-mono text-slate-500">{v.license}</td>
+                                      <td className="py-2.5 px-3 text-xs font-bold text-slate-600">{v.dept}</td>
+                                      <td className="py-2.5 px-3">
+                                        {isEditing ? (
+                                          <input value={vehicleManagerEdit.driver} onChange={e => setVehicleManagerEdit(x => ({ ...x, driver: e.target.value }))}
+                                            className="w-full text-xs bg-white border border-orange-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400" />
+                                        ) : (
+                                          <div>
+                                            <div className={`text-sm font-black ${hasCorrected && conf.correctedDriver ? 'text-orange-700' : 'text-slate-800'}`}>{dispDriver}</div>
+                                            {hasCorrected && conf.correctedDriver && <div className="text-[9px] text-slate-400 line-through">{v.driver}</div>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3">
+                                        {isEditing ? (
+                                          <input value={vehicleManagerEdit.type} onChange={e => setVehicleManagerEdit(x => ({ ...x, type: e.target.value }))}
+                                            className="w-full text-xs bg-white border border-orange-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-400" />
+                                        ) : (
+                                          <div>
+                                            <div className={`text-xs ${hasCorrected && conf.correctedType ? 'text-orange-700 font-bold' : 'text-slate-500'}`}>{dispType}</div>
+                                            {hasCorrected && conf.correctedType && <div className="text-[9px] text-slate-300 line-through">{v.vehicleType}</div>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-center">
+                                        {conf.confirmed
+                                          ? <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[10px] font-black"><CheckCheck size={10} /> אושר</span>
+                                          : <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-100 text-red-700 text-[10px] font-black"><X size={10} /> לא נכון</span>}
+                                      </td>
+                                      <td className="py-2.5 px-3 text-xs text-slate-600 max-w-[140px]">
+                                        <span className="line-clamp-2">{conf.note || <span className="text-slate-300">—</span>}</span>
+                                      </td>
+                                      <td className="py-2.5 px-3">
+                                        <div className="text-[10px] font-bold text-slate-500">{conf.submittedBy}</div>
+                                        <div className="text-[9px] text-slate-300">{conf.date}</div>
+                                      </td>
+                                      <td className="py-2.5 px-3 bg-orange-50/30 text-center">
+                                        {isEditing ? (
+                                          <div className="flex flex-col gap-1 items-center">
+                                            <button onClick={() => { saveVehicleManagerCorrection(v.id, vehicleManagerEdit.driver, vehicleManagerEdit.type); setVehicleManagerEdit(null); }}
+                                              className="w-full flex items-center justify-center gap-1 px-2 py-1.5 bg-orange-600 text-white rounded-lg text-[10px] font-bold hover:bg-orange-700 transition-colors">
+                                              <CheckCheck size={10} /> שמור תיקון
+                                            </button>
+                                            <button onClick={() => setVehicleManagerEdit(null)} className="w-full px-2 py-1 text-slate-400 hover:text-slate-600 text-[10px] font-bold rounded-lg hover:bg-slate-100 transition-colors">בטל</button>
+                                          </div>
+                                        ) : conf.rejected ? (
+                                          <div className="flex flex-col items-center gap-1">
+                                            {hasCorrected && (
+                                              <div className="text-center">
+                                                <div className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-orange-100 text-orange-700 text-[9px] font-black mb-1"><CheckCheck size={9} /> תוקן ע״י אחראי רכב</div>
+                                                <div className="text-[9px] text-orange-600 font-bold">{conf.correctedBy}</div>
+                                                <div className="text-[8px] text-slate-300">{conf.correctedDate}</div>
+                                              </div>
+                                            )}
+                                            <button onClick={() => setVehicleManagerEdit({ id: String(v.id), driver: dispDriver, type: dispType })}
+                                              className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 hover:bg-orange-100 hover:text-orange-700 rounded-lg text-[10px] font-bold transition-colors">
+                                              <PenLine size={10} /> {hasCorrected ? 'ערוך תיקון' : 'תקן נתון'}
+                                            </button>
+                                          </div>
+                                        ) : <span className="text-[9px] text-slate-300">—</span>}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // ---- תצוגה רגילה למנהל מחלקה/אגף ----
+                  return (
+                    <div className="space-y-4">
+                      <div className="bg-white p-2 pl-4 pr-2 rounded-2xl shadow-[0_2px_12px_-4px_rgba(0,0,0,0.05)] border border-slate-100 flex flex-col lg:flex-row items-center gap-3 sticky top-20 z-[200]">
+                        <div className="relative flex-1 w-full lg:w-auto">
+                          <Search size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                          <input value={vehicleSearch} onChange={e => setVehicleSearch(e.target.value)} placeholder="חיפוש הנהג, סוג רכב, מחלקה..." className="w-full pr-8 pl-3 py-2 text-sm bg-slate-50 border border-transparent focus:border-orange-300 focus:bg-white rounded-xl focus:outline-none transition-all" />
+                        </div>
+                        <select value={vehicleFilterDept} onChange={e => setVehicleFilterDept(e.target.value)} className="text-sm font-bold bg-slate-50 border border-transparent focus:border-orange-300 rounded-xl px-3 py-2 focus:outline-none text-slate-600 w-full lg:w-auto">
+                          <option value="הכל">כל המחלקות</option>
+                          {vDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex items-center gap-2 text-xs font-bold">
+                            <span className="text-emerald-600">{confirmed} אושרו</span>
+                            {rejected > 0 && <><span className="text-slate-300">·</span><span className="text-red-500">{rejected} שגויים</span></>}
+                            <span className="text-slate-300">·</span>
+                            <span className="text-slate-400">{visibleVehicles.length - confirmed - rejected} ממתינים</span>
+                          </div>
+                          {vehiclesLoading && <Loader2 size={14} className="animate-spin text-orange-500" />}
+                          <button onClick={loadVehiclesConfirmations} className="text-slate-400 hover:text-orange-500 transition-colors" title="רענן"><RefreshCw size={14} /></button>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-5 py-3 flex items-center gap-4">
+                        <span className="text-xs font-bold text-slate-400 shrink-0">התקדמות אישורים</span>
+                        <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden flex">
+                          <div className="bg-emerald-500 h-2 transition-all duration-500" style={{ width: visibleVehicles.length > 0 ? `${Math.round(confirmed / visibleVehicles.length * 100)}%` : '0%' }} />
+                          <div className="bg-red-400 h-2 transition-all duration-500" style={{ width: visibleVehicles.length > 0 ? `${Math.round(rejected / visibleVehicles.length * 100)}%` : '0%' }} />
+                        </div>
+                        <span className="text-xs font-black text-slate-600 shrink-0">{visibleVehicles.length > 0 ? Math.round((confirmed + rejected) / visibleVehicles.length * 100) : 0}%</span>
+                      </div>
+
+                      {/* Desktop table */}
+                      <div className="hidden lg:block bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+                        <table className="w-full text-right">
+                          <thead>
+                            <tr className="bg-slate-50/80 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
+                              <th className="py-4 px-4 w-28">מס' רישוי</th>
+                              <th className="py-4 px-4 w-28">אגף</th>
+                              <th className="py-4 px-4 w-36">מחלקה</th>
+                              <th className="py-4 px-4">הנהג עיקרי</th>
+                              <th className="py-4 px-4">סוג רכב</th>
+                              <th className="py-4 px-4 w-32">קטגוריה</th>
+                              <th className="py-4 px-4 w-16 text-center">שנה</th>
+                              <th className="py-4 px-4 w-24 text-center">טסט</th>
+                              <th className="py-4 px-4 w-40 text-center">נכון / שגוי</th>
+                              <th className="py-4 px-4 bg-red-50/30">הערה (חובה אם שגוי)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {filtered.length === 0 ? (
+                              <tr><td colSpan={10} className="py-16 text-center text-slate-300 font-bold">לא נמצאו רשומות</td></tr>
+                            ) : filtered.map(v => {
+                              const key = String(v.id);
+                              const conf = vehiclesConfirmations[key] || {};
+                              return (
+                                <tr key={key} className={`hover:bg-slate-50/50 transition-colors group ${conf.confirmed ? 'bg-emerald-50/20' : conf.rejected ? 'bg-red-50/20' : ''}`}>
+                                  <td className="py-3 px-4 text-xs font-mono text-slate-500">{v.license}</td>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-500">{v.wing}</td>
+                                  <td className="py-3 px-4 text-xs font-bold text-slate-600">{v.dept}</td>
+                                  <td className="py-3 px-4 text-sm font-black text-slate-800">{v.driver}</td>
+                                  <td className="py-3 px-4 text-xs text-slate-600">{v.vehicleType}</td>
+                                  <td className="py-3 px-4"><span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700">{v.category}</span></td>
+                                  <td className="py-3 px-4 text-center text-xs text-slate-400">{v.year}</td>
+                                  <td className="py-3 px-4 text-center text-xs text-slate-400">{v.test}</td>
+                                  <td className="py-3 px-4 text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        onClick={() => saveVehicleConfirmation(v, 'confirmed', '')}
+                                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${conf.confirmed ? 'bg-emerald-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400 hover:bg-emerald-100 hover:text-emerald-600'}`}
+                                        title={conf.confirmed ? `אושר ע"י ${conf.submittedBy || ''}` : 'נתון נכון'}
+                                      >
+                                        <CheckCheck size={11} /> נכון
+                                      </button>
+                                      <button
+                                        onClick={() => { if (!conf.rejected) setVehicleRejectedEdit(prev => prev?.key === key ? prev : { key, note: '' }); }}
+                                        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all ${conf.rejected ? 'bg-red-500 text-white shadow-sm' : 'bg-slate-100 text-slate-400 hover:bg-red-100 hover:text-red-600'}`}
+                                        title="נתון שגוי"
+                                      >
+                                        <X size={11} /> שגוי
+                                      </button>
+                                    </div>
+                                    {(conf.confirmed || conf.rejected) && <div className={`text-[8px] font-bold mt-0.5 leading-none ${conf.confirmed ? 'text-emerald-500' : 'text-red-400'}`}>{conf.submittedBy}</div>}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {conf.rejected ? (
+                                      <div>
+                                        <input
+                                          key={`vnote_${key}_${conf.note || ''}`}
+                                          type="text"
+                                          defaultValue={conf.note || ''}
+                                          placeholder="* יש להזין הסבר מה שגוי"
+                                          autoFocus={!conf.note}
+                                          className={`w-full text-xs bg-transparent border-b ${conf.note ? 'border-red-200 focus:border-red-400' : 'border-red-400'} focus:outline-none text-slate-700 placeholder-red-300 py-0.5`}
+                                          onBlur={e => {
+                                            const val = e.target.value.trim();
+                                            if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                            if (val !== (conf.note || '').trim()) saveVehicleConfirmation(v, 'rejected', val);
+                                          }}
+                                          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                                        />
+                                        {conf.note && conf.date && <div className="text-[9px] text-red-300 mt-0.5">{conf.date} · {conf.submittedBy}</div>}
+                                      </div>
+                                    ) : vehicleRejectedEdit?.key === key ? (
+                                      <input
+                                        type="text"
+                                        value={vehicleRejectedEdit.note}
+                                        onChange={e => setVehicleRejectedEdit(prev => ({ ...prev, note: e.target.value }))}
+                                        placeholder="* יש להזין הסבר מה שגוי"
+                                        autoFocus
+                                        className="w-full text-xs bg-transparent border-b border-red-400 focus:outline-none text-slate-700 placeholder-red-300 py-0.5"
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            const val = vehicleRejectedEdit.note.trim();
+                                            if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                            saveVehicleConfirmation(v, 'rejected', val);
+                                            setVehicleRejectedEdit(null);
+                                          }
+                                          if (e.key === 'Escape') setVehicleRejectedEdit(null);
+                                        }}
+                                        onBlur={() => {
+                                          const val = (vehicleRejectedEdit?.note || '').trim();
+                                          if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); setVehicleRejectedEdit(null); return; }
+                                          saveVehicleConfirmation(v, 'rejected', val);
+                                          setVehicleRejectedEdit(null);
+                                        }}
+                                      />
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile cards */}
+                      <div className="lg:hidden space-y-3 pb-10">
+                        {filtered.map(v => {
+                          const key = String(v.id);
+                          const conf = vehiclesConfirmations[key] || {};
+                          return (
+                            <div key={key} className={`bg-white p-4 rounded-2xl border shadow-sm ${conf.confirmed ? 'border-emerald-200 bg-emerald-50/20' : conf.rejected ? 'border-red-200 bg-red-50/20' : 'border-slate-100'}`}>
+                              <div className="flex justify-between items-start mb-2">
+                                <div>
+                                  <div className="text-[10px] font-bold text-orange-500 mb-0.5">{v.wing} · {v.dept}</div>
+                                  <div className="font-black text-slate-800 text-sm leading-snug">{v.driver}</div>
+                                  <div className="text-xs text-slate-500 mt-0.5">{v.vehicleType} · {v.year}</div>
+                                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">{v.license}</div>
+                                </div>
+                                <div className="flex gap-1.5 shrink-0">
+                                  <button
+                                    onClick={() => saveVehicleConfirmation(v, 'confirmed', '')}
+                                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${conf.confirmed ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-300 hover:bg-emerald-100 hover:text-emerald-500'}`}
+                                    title="נתון נכון"
+                                  ><CheckCheck size={14} /></button>
+                                  <button
+                                    onClick={() => { if (!conf.rejected) setVehicleRejectedEdit(prev => prev?.key === key ? prev : { key, note: '' }); }}
+                                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${conf.rejected ? 'bg-red-500 text-white' : 'bg-slate-100 text-slate-300 hover:bg-red-100 hover:text-red-500'}`}
+                                    title="נתון שגוי"
+                                  ><X size={14} /></button>
+                                </div>
+                              </div>
+                              <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-50 text-orange-700 mb-2">{v.category}</span>
+                              {conf.rejected ? (
+                                <input
+                                  key={`mvnote_${key}_${conf.note || ''}`}
+                                  type="text"
+                                  defaultValue={conf.note || ''}
+                                  placeholder="* יש להזין הסבר מה שגוי"
+                                  autoFocus={!conf.note}
+                                  className="w-full text-xs bg-red-50 border border-red-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300/40 placeholder-red-300 text-slate-700"
+                                  onBlur={e => {
+                                    const val = e.target.value.trim();
+                                    if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                    if (val !== (conf.note || '').trim()) saveVehicleConfirmation(v, 'rejected', val);
+                                  }}
+                                  onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                                />
+                              ) : vehicleRejectedEdit?.key === key ? (
+                                <input
+                                  type="text"
+                                  value={vehicleRejectedEdit.note}
+                                  onChange={e => setVehicleRejectedEdit(prev => ({ ...prev, note: e.target.value }))}
+                                  placeholder="* יש להזין הסבר מה שגוי"
+                                  autoFocus
+                                  className="w-full text-xs bg-red-50 border border-red-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300/40 placeholder-red-300 text-slate-700"
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') {
+                                      const val = vehicleRejectedEdit.note.trim();
+                                      if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); return; }
+                                      saveVehicleConfirmation(v, 'rejected', val);
+                                      setVehicleRejectedEdit(null);
+                                    }
+                                    if (e.key === 'Escape') setVehicleRejectedEdit(null);
+                                  }}
+                                  onBlur={() => {
+                                    const val = (vehicleRejectedEdit?.note || '').trim();
+                                    if (!val) { showToast('יש להזין הסבר כאשר הנתון שגוי', 'error', 3000); setVehicleRejectedEdit(null); return; }
+                                    saveVehicleConfirmation(v, 'rejected', val);
+                                    setVehicleRejectedEdit(null);
+                                  }}
+                                />
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            )}
+
           </div>
         </main>
       </div>
+
+      {/* ===== New Item Form Modal ===== */}
+      {showNewItemForm && (
+        <div className="fixed inset-0 z-[1500] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 flex items-center justify-center"><Plus size={18} className="text-emerald-600" /></div>
+                <h2 className="font-black text-slate-800 text-sm">הוספת סעיף תקציב חדש</h2>
+              </div>
+              <button onClick={() => setShowNewItemForm(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">אגף *</label>
+                  <select value={newItemForm.wing} onChange={e => setNewItemForm(p => ({ ...p, wing: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30">
+                    <option value="">בחר אגף...</option>
+                    {wingOptions.map(w => <option key={w} value={w}>{w}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">מחלקה *</label>
+                  <select value={newItemForm.dept} onChange={e => setNewItemForm(p => ({ ...p, dept: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30">
+                    <option value="">בחר מחלקה...</option>
+                    {budgetDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">שם הסעיף *</label>
+                <input type="text" value={newItemForm.name} onChange={e => setNewItemForm(p => ({ ...p, name: e.target.value }))} placeholder="הזן שם סעיף תקציבי..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 placeholder-slate-300" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">סוג</label>
+                  <select value={newItemForm.type} onChange={e => setNewItemForm(p => ({ ...p, type: e.target.value }))} className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30">
+                    <option value="הוצאה">הוצאה</option>
+                    <option value="הכנסה">הכנסה</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">סכום מבוקש 2027</label>
+                  <input type="number" value={newItemForm.requested2027} onChange={e => setNewItemForm(p => ({ ...p, requested2027: e.target.value }))} placeholder="0" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 placeholder-slate-300 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">הסבר / הצדקה *</label>
+                <textarea value={newItemForm.justification} onChange={e => setNewItemForm(p => ({ ...p, justification: e.target.value }))} rows={3} placeholder="פרט מדוע נדרש סעיף זה..." className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 placeholder-slate-300 resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => setShowNewItemForm(false)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">ביטול</button>
+              <button onClick={saveNewItemRequest} className="px-5 py-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-colors">שמור בקשה</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Approve New Item Modal ===== */}
+      {approveModal && (
+        <div className="fixed inset-0 z-[1500] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" dir="rtl">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="font-black text-slate-800 text-sm">אישור סעיף חדש</h2>
+              <button onClick={() => setApproveModal(null)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"><X size={18} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">הקצאת מזהה אמיתי לסעיף: <span className="font-black text-slate-800">{approveModal.name}</span></p>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">מזהה סעיף (מספר) *</label>
+                <input type="text" value={approveModal.realId} onChange={e => setApproveModal(p => ({ ...p, realId: e.target.value }))} placeholder="לדוגמה: 1234" className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 placeholder-slate-300" autoFocus />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => setApproveModal(null)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors">ביטול</button>
+              <button onClick={() => approveNewItem(approveModal.tempId, approveModal.realId)} className="px-5 py-2 text-sm font-bold bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl transition-colors">אשר ושמור</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== Upload Modal ===== */}
       {showUploadModal && (
@@ -3996,6 +6395,10 @@ const App = () => {
               <span>משתמשים</span>
             </button>
           )}
+          <button onClick={() => { setMainTab('budget2027'); if (Object.keys(budget2027Data).length === 0) loadBudget2027(); setIsMenuOpen(false); }} className={`flex-1 flex flex-col items-center gap-1 py-3 text-[9px] font-bold transition-colors ${mainTab === 'budget2027' ? 'text-blue-600' : 'text-slate-400'}`}>
+            {budget2027Loading ? <Loader2 size={20} className="animate-spin" /> : <FileSpreadsheet size={20} strokeWidth={2} />}
+            <span>תקציב 27</span>
+          </button>
         </div>
       </nav>
     </div>
