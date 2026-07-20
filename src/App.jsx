@@ -200,9 +200,20 @@ const downloadCsv = (rows, filename) => {
 };
 
 function StatusDropdown({ value, onChange, open, setOpen }) {
+  const btnRef = useRef(null);
+  const [menuPos, setMenuPos] = useState({});
+
+  useEffect(() => {
+    if (open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setMenuPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    }
+  }, [open]);
+
   return (
     <div className="relative w-full">
       <button
+        ref={btnRef}
         onClick={() => setOpen(!open)}
         className={`w-full px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between transition-all border ${
           value ? `${STATUS_CONFIG[value].bg} ${STATUS_CONFIG[value].text} ${STATUS_CONFIG[value].border}` : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
@@ -213,7 +224,7 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
       </button>
 
       {open && (
-        <div className="absolute z-[100] mt-1.5 w-full bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-0.5">
+        <div style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: menuPos.width, zIndex: 9999 }} className="bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-0.5">
           {Object.entries(STATUS_CONFIG).map(([v, c]) => {
             const isSelected = value === parseInt(v);
             return (
@@ -221,8 +232,8 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
                 key={v}
                 onClick={() => onChange(parseInt(v, 10))}
                 className={`w-full text-right px-3 py-2 text-xs font-bold rounded-lg transition-all flex items-center gap-2 ${
-                  isSelected 
-                    ? `${c.bg} ${c.text} border ${c.border}` 
+                  isSelected
+                    ? `${c.bg} ${c.text} border ${c.border}`
                     : `bg-transparent ${c.text} ${c.hoverBg} border border-transparent`
                 }`}
               >
