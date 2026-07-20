@@ -201,12 +201,20 @@ const downloadCsv = (rows, filename) => {
 
 function StatusDropdown({ value, onChange, open, setOpen }) {
   const btnRef = useRef(null);
-  const [menuPos, setMenuPos] = useState({});
+  const [menuPos, setMenuPos] = useState(null);
 
   useEffect(() => {
     if (open && btnRef.current) {
       const r = btnRef.current.getBoundingClientRect();
-      setMenuPos({ top: r.bottom + 6, left: r.left, width: r.width });
+      const estimatedMenuHeight = 230;
+      const spaceBelow = window.innerHeight - r.bottom;
+      if (spaceBelow < estimatedMenuHeight) {
+        setMenuPos({ bottom: window.innerHeight - r.top + 6, left: r.left, width: r.width });
+      } else {
+        setMenuPos({ top: r.bottom + 6, left: r.left, width: r.width });
+      }
+    } else {
+      setMenuPos(null);
     }
   }, [open]);
 
@@ -223,8 +231,8 @@ function StatusDropdown({ value, onChange, open, setOpen }) {
         <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
-        <div style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: menuPos.width, zIndex: 9999 }} className="bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-0.5">
+      {open && menuPos && (
+        <div style={{ position: 'fixed', ...menuPos, zIndex: 9999 }} className="bg-white border border-slate-100 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 p-1.5 space-y-0.5">
           {Object.entries(STATUS_CONFIG).map(([v, c]) => {
             const isSelected = value === parseInt(v);
             return (
