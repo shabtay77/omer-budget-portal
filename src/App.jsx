@@ -1643,6 +1643,34 @@ const App = () => {
     });
   }, [filteredWorkData, sortOrder]);
 
+  // snapshot of IDs when filter criteria change — prevents rows from disappearing mid-edit
+  const [snapshotWorkIds, setSnapshotWorkIds] = useState(null);
+  useEffect(() => {
+    if (filterStatus === null) {
+      setSnapshotWorkIds(null);
+    } else {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      setSnapshotWorkIds(new Set(baseWorkData.filter(t => {
+        const status = workplanQuarter === 0 ? getOverallRating(t) : t[`q${workplanQuarter}`];
+        return filterStatus === 0 ? !status : status === filterStatus;
+      }).map(t => t.id)));
+    }
+  // intentionally omit baseWorkData — re-snapshot only when filter criteria change, not on data updates
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, workplanQuarter, filterDept, search, showOnlyOverdueTasks, activeWingId, currentUser]);
+
+  const displayWorkData = useMemo(() => {
+    const base = snapshotWorkIds === null
+      ? baseWorkData
+      : baseWorkData.filter(t => snapshotWorkIds.has(t.id));
+    if (sortOrder === 'default') return base;
+    return [...base].sort((a, b) => {
+      const dateA = parseDateLogic(a.deadline) || new Date(2100, 0, 1);
+      const dateB = parseDateLogic(b.deadline) || new Date(2100, 0, 1);
+      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+    });
+  }, [snapshotWorkIds, baseWorkData, sortOrder]);
+
   // סטטיסטיקות תמיד מנתוני הבסיס (ללא פילטר סטטוס) — כדי שהכרטיסיות יציגו נתון אמיתי
   const workStats = useMemo(() => {
     const total = baseWorkData.length || 0;
@@ -1747,7 +1775,7 @@ const App = () => {
     }
     if (mainTab === 'workplan') {
       rows = [['מזהה', 'אגף', 'מחלקה', 'פעילות', 'משימה', 'יעד', 'רבעון 1', 'הערה 1', 'רבעון 2', 'הערה 2', 'רבעון 3', 'הערה 3', 'רבעון 4', 'הערה 4']];
-      sortedWorkData.forEach((t) => {
+      displayWorkData.forEach((t) => {
         rows.push([t.id, t.wing, t.dept, t.activity || '', t.task, formatDate(t.deadline), STATUS_CONFIG[t.q1]?.label || '', t.n1 || '', STATUS_CONFIG[t.q2]?.label || '', t.n2 || '', STATUS_CONFIG[t.q3]?.label || '', t.n3 || '', STATUS_CONFIG[t.q4]?.label || '', t.n4 || '']);
       });
       filename = 'workplan_export.csv';
@@ -3683,7 +3711,7 @@ const App = () => {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-1 py-1 text-xs font-bold text-slate-500">
-                      <span>מציג <span className="text-slate-800">{sortedWorkData.length}</span> מתוך <span className="text-slate-800">{workStats.total}</span> משימות</span>
+                      <span>מציג <span className="text-slate-800">{displayWorkData.length}</span> מתוך <span className="text-slate-800">{workStats.total}</span> משימות</span>
                       <span className="text-slate-200 hidden sm:inline">|</span>
                       <span className="hidden sm:inline text-emerald-600">{workStats.s1} בוצע</span>
                       <span className="text-slate-200 hidden sm:inline">|</span>
@@ -3763,7 +3791,7 @@ const App = () => {
                              </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                             {sortedWorkData.length === 0 ? (
+                             {displayWorkData.length === 0 ? (
                                <tr><td colSpan={6} className="py-20 text-center">
                                  <div className="flex flex-col items-center gap-3 text-slate-300">
                                    <Target size={36} strokeWidth={1.5} />
@@ -3771,7 +3799,7 @@ const App = () => {
                                    <p className="text-sm text-slate-400">נסה לשנות את פרמטרי החיפוש</p>
                                  </div>
                                </td></tr>
-                             ) : sortedWorkData.map(t => {
+                             ) : displayWorkData.map(t => {
                                 const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
                                 const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                                 const currentStatus = t[`q${workplanQuarter}`];
@@ -3815,11 +3843,11 @@ const App = () => {
 
                     <div className="lg:hidden space-y-4 pb-24">
                        <div className="flex justify-between items-center px-2">
-                          <div className="text-xs font-bold text-slate-400">מציג {sortedWorkData.length} משימות</div>
+                          <div className="text-xs font-bold text-slate-400">מציג {displayWorkData.length} משימות</div>
                           <button onClick={() => setSortOrder(prev => prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'default')} className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${sortOrder !== 'default' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'}`}>מיון לפי יעד {sortOrder === 'asc' ? <ArrowUp size={12}/> : sortOrder === 'desc' ? <ArrowDown size={12}/> : <ArrowUpDown size={12}/>}</button>
                        </div>
                        
-                       {sortedWorkData.map(t => {
+                       {displayWorkData.map(t => {
                           const prevStatuses = [1, 2, 3, 4].filter((q) => q < workplanQuarter && t[`q${q}`]);
                           const latestPrev = prevStatuses.length > 0 ? t[`q${prevStatuses[prevStatuses.length - 1]}`] : null;
                           const currentStatus = t[`q${workplanQuarter}`];
